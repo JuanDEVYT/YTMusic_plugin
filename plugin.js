@@ -584,20 +584,40 @@ async function resolveViaBrowser(videoId) {
     }
     throw e;
   }
-  const audio = (page.media || []).filter((m) => m && /^audio\//.test(queryParam(m.url, "mime")));
+  const all = page.media || [];
+  // Diagnóstico seguro: solo nombres de parámetros y valores que no identifican a nadie.
+  for (const m of all.slice(0, 4)) {
+    const keys = (m.url.indexOf("?") < 0 ? "" : m.url.slice(m.url.indexOf("?") + 1)).split("&").map((x) => x.split("=")[0]);
+    kino.log(
+      "captured:",
+      "mime=" + queryParam(m.url, "mime"),
+      "itag=" + queryParam(m.url, "itag"),
+      "c=" + queryParam(m.url, "c"),
+      "ump=" + queryParam(m.url, "ump"),
+      "sabr=" + queryParam(m.url, "sabr"),
+      "keys=" + keys.join(",").slice(0, 300),
+    );
+  }
+  // Quitamos lo propio del reproductor web: trozos (range, rn, rbuf) y el envoltorio UMP (ump, srfvp).
+  const clean = (u) => stripParams(u, ["range", "rn", "rbuf", "ump", "srfvp"]);
+  const seen = new Set();
+  const audio = all
+    .filter((m) => m && /^audio\//.test(queryParam(m.url, "mime")))
+    .map((m) => ({ url: clean(m.url), headers: m.headers || {} }))
+    .filter((m) => (seen.has(m.url) ? false : (seen.add(m.url), true)));
   if (!audio.length) {
-    kino.log("browser capture: sin audio entre", (page.media || []).length, "peticiones");
+    kino.log("browser capture: sin audio entre", all.length, "peticiones");
     throw kino.error("unavailable", "capture sin audio", { userMessage: "YouTube no entregó esta canción por ahora. Prueba de nuevo en unos minutos." });
   }
-  const m = audio[0];
-  const url = stripParams(m.url, ["range", "rn", "rbuf"]);
-  const stream = { url, mime: queryParam(url, "mime"), headers: m.headers || {}, label: "YouTube Music" };
-  const dur = Number(queryParam(url, "dur"));
+  const describeCap = (m) => ({ url: m.url, mime: queryParam(m.url, "mime"), headers: m.headers, label: "YouTube Music" });
+  const stream = describeCap(audio[0]);
+  const dur = Number(queryParam(stream.url, "dur"));
   if (Number.isFinite(dur) && dur > 0) stream.durationMs = Math.round(dur * 1000);
-  const expire = Number(queryParam(url, "expire"));
+  const expire = Number(queryParam(stream.url, "expire"));
   if (Number.isFinite(expire) && expire > 0) {
     stream.expiresInSeconds = Math.max(30, Math.min(86400, Math.round(expire - Date.now() / 1000) - 300));
   }
+  if (audio.length > 1) stream.alternatives = audio.slice(1, 4).map(describeCap);
   return stream;
 }
 
