@@ -580,21 +580,53 @@ async function playerFor(videoId) {
 
 // --- Camino 1: URL directa pedida a /player (rápido, pero YouTube lo bloquea a veces) ---------
 
+// Misma URL con el rango dentro del propio enlace (googlevideo lo acepta como parámetro `range`), para no
+// depender del encabezado Range que mande el reproductor.
+function withRange(url, end) {
+  return url + (url.indexOf("?") < 0 ? "?" : "&") + "range=0-" + end;
+}
+
 async function resolveDirect(videoId) {
   const { client, sd, ordered, hlsUrl } = await playerFor(videoId);
-  const headers = { "User-Agent": client.ua };
+  const ua = client.ua;
+  const headers = { "User-Agent": ua };
   const exp = Number(sd.expiresInSeconds);
   const expires = Number.isFinite(exp) && exp > 0 ? Math.max(30, Math.min(86400, Math.round(exp) - 300)) : undefined;
-  const files = ordered.map((f) => ({ url: f.url, mime: mimeOf(f), headers, label: describe(f) }));
+  const plain = (f) => ({ url: f.url, mime: mimeOf(f), headers, label: describe(f) });
   let stream;
   if (hlsUrl) {
     stream = { url: hlsUrl, mime: "application/vnd.apple.mpegurl", headers, label: "HLS" };
-    if (files.length) stream.alternatives = files.slice(0, 2);
+    if (ordered.length) stream.alternatives = ordered.slice(0, 2).map(plain);
   } else {
-    stream = files[0];
-    const ms = Number(ordered[0].approxDurationMs);
+    // Diagnóstico: ¿funciona el rango dentro del enlace, sin encabezado Range? ¿y sin nuestro User-Agent?
+    const f0 = ordered[0];
+    const len = Number(f0.contentLength);
+    let rangedOk = false;
+    if (Number.isFinite(len) && len > 1) {
+      const probe = withRange(f0.url, 1);
+      const withUa = await probeUrl(probe, ua, true);
+      let noUa = "-";
+      try {
+        noUa = (await kino.fetch(probe, { cookies: false, timeoutMs: 8000 })).status;
+      } catch (e) {
+        noUa = String(e.code || "error");
+      }
+      rangedOk = withUa === 200 || withUa === 206;
+      kino.log("probe rango-en-url: con UA ->", withUa, "| sin UA ->", noUa);
+    } else {
+      kino.log("probe rango-en-url: sin contentLength");
+    }
+    // Primero el enlace con el rango incluido (todo el archivo en una petición), luego los normales.
+    const list = [];
+    for (const f of ordered.slice(0, 3)) {
+      const l = Number(f.contentLength);
+      if (rangedOk && Number.isFinite(l) && l > 1) list.push(Object.assign(plain(f), { url: withRange(f.url, l - 1) }));
+    }
+    for (const f of ordered.slice(0, 3)) list.push(plain(f));
+    stream = list[0];
+    const ms = Number(f0.approxDurationMs);
     if (Number.isFinite(ms) && ms > 0) stream.durationMs = Math.round(ms);
-    if (files.length > 1) stream.alternatives = files.slice(1, 3);
+    if (list.length > 1) stream.alternatives = list.slice(1, 6);
   }
   if (expires) stream.expiresInSeconds = expires;
   return stream;
