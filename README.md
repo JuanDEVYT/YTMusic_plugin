@@ -5,7 +5,7 @@ Plugin de música para Kino (apiVersion 8, Kino 0.9.54 o superior): busca, explo
 ## Qué hace y qué no
 
 - Búsqueda de canciones, álbumes y listas; filas de Inicio; álbumes y listas con paginación.
-- Reproducción de audio. Primero intenta una URL directa (AAC u Opus, a tu elección en Ajustes) y, si YouTube la bloquea, abre `music.youtube.com` en el **navegador oculto de Kino** y toma la URL que genera el reproductor real. En Ajustes, "Método de reproducción" permite forzar solo el navegador oculto.
+- Reproducción de audio. Pide a YouTube la canción como un cliente móvil: usa el manifiesto HLS de iOS y, si no, un archivo de audio directo (AAC u Opus, a tu elección en Ajustes). "Método de reproducción" > "Navegador oculto (experimental)" abre `music.youtube.com` en el navegador oculto de Kino, pero hoy YouTube entrega ahí un formato que el reproductor de Kino no entiende.
 - **No** descarga (no declara `download`), no hay artistas ni podcasts todavía, y no ofrece el audio Premium de 256 kbps.
 
 ## Iniciar sesión (opcional)

@@ -12,8 +12,8 @@ const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC"];
 
-// Clientes para /player, en orden de preferencia. El cliente IOS se quitó: sus URLs dan 403 sin el token
-// que solo genera el reproductor real. Si este deja de funcionar, resolve() usa el navegador oculto.
+// Clientes para /player, en orden de preferencia. ANDROID_VR entrega URLs directas de audio; de IOS se
+// usa el manifiesto HLS (sus URLs sueltas dan 403 sin el token del reproductor web). Lo que caduca está aquí.
 const CLIENTS = [
   {
     ua: "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
@@ -26,6 +26,19 @@ const CLIENTS = [
       osName: "Android",
       osVersion: "12L",
       androidSdkVersion: 32,
+    },
+  },
+  {
+    ua: "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+    id: "5",
+    hls: true,
+    client: {
+      clientName: "IOS",
+      clientVersion: "20.10.4",
+      deviceMake: "Apple",
+      deviceModel: "iPhone16,2",
+      osName: "iPhone",
+      osVersion: "18.3.2.22D82",
     },
   },
 ];
@@ -462,25 +475,45 @@ function orderFormats(formats, pref) {
   return pref === "opus" ? opus.concat(aac) : aac.concat(opus);
 }
 
+// Identificador de visitante (lo piden los clientes móviles para no parecer un robot). Se guarda 6 h.
+async function visitorData() {
+  try {
+    const cached = kino.storage.get("visitorData");
+    if (cached) return cached;
+    const data = await yt("visitor_id", {}, { cookie: "" });
+    const v = findAll(data, "visitorData")[0];
+    if (typeof v === "string" && v.length > 5 && v.length < 600) {
+      kino.storage.set("visitorData", v, { ttlMs: 6 * 3600 * 1000 });
+      return v;
+    }
+  } catch (e) {
+    kino.log("visitorData:", e.code || "error");
+  }
+  return "";
+}
+
 async function playerFor(videoId) {
   const { hl, gl } = locale();
+  const vd = await visitorData();
   let lastStatus = null;
   for (const c of CLIENTS) {
     let r;
     try {
+      const headers = {
+        "Content-Type": "application/json",
+        "User-Agent": c.ua,
+        "X-YouTube-Client-Name": c.id,
+        "X-YouTube-Client-Version": c.client.clientVersion,
+        Origin: "https://www.youtube.com",
+      };
+      if (vd) headers["X-Goog-Visitor-Id"] = vd;
       r = await kino.fetch(PLAYER_URL, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": c.ua,
-          "X-YouTube-Client-Name": c.id,
-          "X-YouTube-Client-Version": c.client.clientVersion,
-          Origin: "https://www.youtube.com",
-        },
+        headers,
         body: {
           json: {
             videoId,
-            context: { client: Object.assign({}, c.client, { hl, gl }) },
+            context: { client: Object.assign({}, c.client, { hl, gl }, vd ? { visitorData: vd } : {}) },
             contentCheckOk: true,
             racyCheckOk: true,
           },
@@ -506,11 +539,13 @@ async function playerFor(videoId) {
     }
     const sd = d.streamingData || {};
     const ordered = orderFormats(sd.adaptiveFormats, kino.config.get("quality"));
-    if (!ordered.length) {
-      kino.log("player", c.client.clientName, "sin formatos de audio con URL directa");
+    const hlsUrl = c.hls && typeof sd.hlsManifestUrl === "string" && /^https:\/\//.test(sd.hlsManifestUrl) ? sd.hlsManifestUrl : "";
+    if (!ordered.length && !hlsUrl) {
+      kino.log("player", c.client.clientName, "sin audio utilizable");
       continue;
     }
-    return { client: c, sd, ordered };
+    kino.log("player", c.client.clientName, "OK", hlsUrl ? "hls" : "", ordered.length + " formatos de audio");
+    return { client: c, sd, ordered, hlsUrl };
   }
   const reason = String((lastStatus && lastStatus.reason) || "");
   if (/country|region|pa[ií]s|regi[oó]n/i.test(reason)) throw kino.error("geo_blocked", reason.slice(0, 150));
@@ -525,16 +560,22 @@ async function playerFor(videoId) {
 // --- Camino 1: URL directa pedida a /player (rápido, pero YouTube lo bloquea a veces) ---------
 
 async function resolveDirect(videoId) {
-  const { client, sd, ordered } = await playerFor(videoId);
+  const { client, sd, ordered, hlsUrl } = await playerFor(videoId);
   const headers = { "User-Agent": client.ua };
-  const first = ordered[0];
-  const stream = { url: first.url, mime: mimeOf(first), headers, label: describe(first) };
-  const ms = Number(first.approxDurationMs);
-  if (Number.isFinite(ms) && ms > 0) stream.durationMs = Math.round(ms);
   const exp = Number(sd.expiresInSeconds);
-  if (Number.isFinite(exp) && exp > 0) stream.expiresInSeconds = Math.max(30, Math.min(86400, Math.round(exp) - 300));
-  const others = ordered.slice(1, 3).map((f) => ({ url: f.url, mime: mimeOf(f), headers, label: describe(f) }));
-  if (others.length) stream.alternatives = others;
+  const expires = Number.isFinite(exp) && exp > 0 ? Math.max(30, Math.min(86400, Math.round(exp) - 300)) : undefined;
+  const files = ordered.map((f) => ({ url: f.url, mime: mimeOf(f), headers, label: describe(f) }));
+  let stream;
+  if (hlsUrl) {
+    stream = { url: hlsUrl, mime: "application/vnd.apple.mpegurl", headers, label: "HLS" };
+    if (files.length) stream.alternatives = files.slice(0, 2);
+  } else {
+    stream = files[0];
+    const ms = Number(ordered[0].approxDurationMs);
+    if (Number.isFinite(ms) && ms > 0) stream.durationMs = Math.round(ms);
+    if (files.length > 1) stream.alternatives = files.slice(1, 3);
+  }
+  if (expires) stream.expiresInSeconds = expires;
   return stream;
 }
 
@@ -643,24 +684,14 @@ export async function resolve(ref) {
   const p = parseRef(ref);
   if (!p || p.type !== "t" || !/^[A-Za-z0-9_-]{11}$/.test(p.id)) throw kino.error("not_found", "ref de pista no válido");
   const canBrowse = !!(kino.browser && typeof kino.browser.capture === "function");
-  const mode = kino.config.get("method") || "auto";
-  let directError = null;
-  if (mode !== "browser" || !canBrowse) {
+  if (kino.config.get("method") === "browser" && canBrowse) {
     try {
-      return await resolveDirect(p.id);
+      return await resolveViaBrowser(p.id);
     } catch (e) {
-      if (e.code === "host_not_allowed" || e.code === "not_found" || e.code === "geo_blocked" || !canBrowse) throw e;
-      directError = e;
-      kino.log("directo falló, uso el navegador oculto:", e.code || "error");
+      if (e.code !== "not_allowed" && e.code !== "browser_unavailable") throw e;
     }
   }
-  try {
-    return await resolveViaBrowser(p.id);
-  } catch (e) {
-    // Sin permiso o sin WebView en este aparato: mejor el error del camino directo.
-    if (directError && (e.code === "not_allowed" || e.code === "browser_unavailable")) throw directError;
-    throw e;
-  }
+  return resolveDirect(p.id);
 }
 
 // ---------------------------------------------------------------------------------------------
