@@ -10,12 +10,26 @@ const API = "https://music.youtube.com/youtubei/v1/";
 const ORIGIN = "https://music.youtube.com";
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
-const VERSION = "0.3.4";
+const VERSION = "0.3.5";
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC"];
 
-// Clientes para /player, en orden de preferencia. ANDROID_VR entrega URLs directas de audio; de IOS se
-// usa el manifiesto HLS (sus URLs sueltas dan 403 sin el token del reproductor web). Lo que caduca está aquí.
+// Clientes para /player, en orden de preferencia. VISIONOS entrega URLs directas de audio que googlevideo
+// sirve completas y por rangos abiertos sin PO token (el que usa yt-dlp); IOS y ANDROID_VR piden ese token para
+// las URLs https: sin él solo dejan pasar un rango acotado de ~1 MB y el reproductor, que pide `bytes=0-`,
+// recibe 403. De IOS se usa el manifiesto HLS. Lo que caduca está aquí.
 const CLIENTS = [
+  {
+    ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15",
+    id: "101",
+    client: {
+      clientName: "VISIONOS",
+      clientVersion: "1.02",
+      deviceMake: "Apple",
+      deviceModel: "RealityDevice17,1",
+      osName: "visionOS",
+      osVersion: "26.5.23O471",
+    },
+  },
   {
     ua: "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
     id: "5",
@@ -494,10 +508,13 @@ async function visitorData() {
 }
 
 // Prueba una URL de audio (o el manifiesto HLS) desde el propio plugin: 2 bytes, mismos encabezados que usará el reproductor.
-async function probeUrl(url, ua, isHls) {
+async function probeUrl(url, ua, isHls, clen) {
+  // Un rango de 2 bytes al principio pasa siempre: lo que googlevideo rechaza sin PO token es lo que está
+  // más allá de ~1 MB. Se prueba pasado ese punto, que es lo que hará el reproductor.
+  const at = Number.isFinite(clen) && clen > 1200000 ? Math.min(1500000, clen - 2) : 0;
   try {
     const r = await kino.fetch(url, {
-      headers: Object.assign({ "User-Agent": ua }, isHls ? {} : { Range: "bytes=0-1" }),
+      headers: Object.assign({ "User-Agent": ua }, isHls ? {} : { Range: "bytes=" + at + "-" + (at + 1) }),
       cookies: false,
       timeoutMs: 8000,
     });
@@ -574,7 +591,7 @@ async function playerFor(videoId) {
       "keys=" + (sample.indexOf("?") < 0 ? "" : sample.slice(sample.indexOf("?") + 1).split("&").map((x) => x.split("=")[0]).join(",")).slice(0, 300),
     );
     // ¿Sirve de verdad? Se prueba la primera URL; si googlevideo la rechaza, se sigue con el cliente siguiente.
-    const st = await probeUrl(hlsUrl || ordered[0].url, c.ua, !!hlsUrl);
+    const st = await probeUrl(hlsUrl || ordered[0].url, c.ua, !!hlsUrl, Number(ordered[0] && ordered[0].contentLength));
     kino.log("probe", c.client.clientName, hlsUrl ? "hls" : "itag " + ordered[0].itag, "->", st);
     if (st === 200 || st === 206) return found;
     if (!fallback) fallback = found;

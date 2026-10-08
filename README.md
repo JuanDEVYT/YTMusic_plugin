@@ -5,7 +5,7 @@ Plugin de música para Kino (apiVersion 8, Kino 0.9.54 o superior): busca, explo
 ## Qué hace y qué no
 
 - Búsqueda de canciones, álbumes y listas; filas de Inicio; álbumes y listas con paginación.
-- Reproducción de audio. Pide a YouTube la canción como un cliente móvil: usa el manifiesto HLS de iOS y, si no, un archivo de audio directo (AAC u Opus, a tu elección en Ajustes). "Método de reproducción" > "Navegador oculto (experimental)" abre `music.youtube.com` en el navegador oculto de Kino, pero hoy YouTube entrega ahí un formato que el reproductor de Kino no entiende.
+- Reproducción de audio. Pide la canción a YouTube como el cliente de Apple Vision Pro, cuyas URLs googlevideo sirve completas sin PO token (iOS y Android VR solo dejan pasar ~1 MB y el reproductor recibe 403 después). Antes de entregar la URL, el plugin la prueba más allá del primer MB; si falla, pasa al HLS de iOS o a los otros clientes. Puedes elegir AAC u Opus en Ajustes. "Navegador oculto (experimental)" no funciona hoy: YouTube pide verificar que eres una persona.
 - **No** descarga (no declara `download`), no hay artistas ni podcasts todavía, y no ofrece el audio Premium de 256 kbps.
 
 ## Iniciar sesión (opcional)
