@@ -31,7 +31,7 @@ Las cookies equivalen a tu sesión de Google: no las compartas. Se guardan cifra
 ## Advertencias
 
 - Usar un cliente no oficial va contra las condiciones de servicio de YouTube. Úsalo con criterio y, si te preocupa tu cuenta, no inicies sesión (como invitado funciona la búsqueda y la reproducción).
-- El camino directo imita a un cliente oficial (`CLIENTS` en `plugin.js`) y YouTube lo bloquea a ratos (`LOGIN_REQUIRED`). Por eso el plugin declara `"browser": true`: Kino muestra en rojo "Puede abrir páginas web ocultas para encontrar el video" y hay que aceptarlo. La página oculta empieza sin cookies, así que ese camino reproduce como invitado (puede haber anuncios si YouTube los pone) y tarda unos segundos más. Si Kino devuelve `blocked`, YouTube pidió verificar que eres una persona y Kino nunca resuelve eso: prueba más tarde. Con `"debug": true` el Registro dice qué camino falló y por qué.
+- El camino directo imita a un cliente oficial (`CLIENTS` en `plugin.js`) y YouTube lo bloquea a ratos (`LOGIN_REQUIRED`). Por eso el plugin declara `"browser": true`: Kino muestra en rojo "Puede abrir páginas web ocultas para encontrar el video" y hay que aceptarlo. La página oculta empieza sin cookies, así que ese camino reproduce como invitado: YouTube le pone anuncios, el plugin los descarta (URLs con `ctier`) y espera a que empiece la canción, por lo que puede tardar hasta unos 25 segundos y fallar si el anuncio es largo. Si Kino devuelve `blocked`, YouTube pidió verificar que eres una persona y Kino nunca resuelve eso: prueba más tarde. Con `"debug": true` el Registro dice qué camino falló y por qué.
 - Las URLs de audio van atadas a tu conexión; por eso el plugin las pide en el aparato y Kino las renueva al caducar.
 
 ## Probar y publicar

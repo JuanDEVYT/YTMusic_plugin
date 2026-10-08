@@ -1,7 +1,7 @@
 {
   "id": "ytmusic",
   "name": "YouTube Music",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "apiVersion": 8,
   "entry": "plugin.js",
   "description": "Busca y reproduce música de YouTube Music; con tu sesión ves tus Me gusta y tus listas",

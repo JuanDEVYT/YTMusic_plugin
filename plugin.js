@@ -567,12 +567,17 @@ function stripParams(url, names) {
   return url.slice(0, i) + (kept.length ? "?" + kept.join("&") : "");
 }
 
+const AD_FREE_MATCH = "^(?!.*[?&]ctier=).*videoplayback";
+
 async function resolveViaBrowser(videoId) {
   let page;
   try {
     page = await kino.browser.capture("https://music.youtube.com/watch?v=" + videoId, {
-      match: "videoplayback",
-      timeoutMs: 22000,
+      // Solo cuenta lo que no lleva ctier: esas URLs son los anuncios que YouTube pone a una sesión de
+      // invitado. Los anuncios pasan de largo (la página los reproduce en silencio) y la captura espera
+      // a que empiece la canción de verdad.
+      match: AD_FREE_MATCH,
+      timeoutMs: 25000,
     });
   } catch (e) {
     kino.log("browser capture:", e.code || "error");
@@ -595,29 +600,42 @@ async function resolveViaBrowser(videoId) {
       "c=" + queryParam(m.url, "c"),
       "ump=" + queryParam(m.url, "ump"),
       "sabr=" + queryParam(m.url, "sabr"),
+      "ctier=" + queryParam(m.url, "ctier"),
+      "clen=" + queryParam(m.url, "clen"),
       "keys=" + keys.join(",").slice(0, 300),
     );
   }
   // Quitamos lo propio del reproductor web: trozos (range, rn, rbuf) y el envoltorio UMP (ump, srfvp).
   const clean = (u) => stripParams(u, ["range", "rn", "rbuf", "ump", "srfvp"]);
   const seen = new Set();
-  const audio = all
-    .filter((m) => m && /^audio\//.test(queryParam(m.url, "mime")))
-    .map((m) => ({ url: clean(m.url), headers: m.headers || {} }))
-    .filter((m) => (seen.has(m.url) ? false : (seen.add(m.url), true)));
-  if (!audio.length) {
-    kino.log("browser capture: sin audio entre", all.length, "peticiones");
+  const variants = [];
+  const add = (u, headers) => {
+    if (!seen.has(u)) {
+      seen.add(u);
+      variants.push({ url: u, headers: headers || {} });
+    }
+  };
+  for (const m of all) {
+    if (!m || !/^audio\//.test(queryParam(m.url, "mime")) || queryParam(m.url, "ctier")) continue; // nunca anuncios
+    const plain = clean(m.url);
+    add(plain, m.headers); // variante A: sin rango (el reproductor pide con su propio Range)
+    const clen = Number(queryParam(plain, "clen"));
+    if (Number.isFinite(clen) && clen > 1) add(plain + (plain.indexOf("?") < 0 ? "?" : "&") + "range=0-" + (clen - 1), m.headers); // B: todo el archivo como un solo rango
+  }
+  if (!variants.length) {
+    kino.log("browser capture: sin audio de la canción entre", all.length, "peticiones");
     throw kino.error("unavailable", "capture sin audio", { userMessage: "YouTube no entregó esta canción por ahora. Prueba de nuevo en unos minutos." });
   }
   const describeCap = (m) => ({ url: m.url, mime: queryParam(m.url, "mime"), headers: m.headers, label: "YouTube Music" });
-  const stream = describeCap(audio[0]);
+  const stream = describeCap(variants[0]);
   const dur = Number(queryParam(stream.url, "dur"));
   if (Number.isFinite(dur) && dur > 0) stream.durationMs = Math.round(dur * 1000);
   const expire = Number(queryParam(stream.url, "expire"));
   if (Number.isFinite(expire) && expire > 0) {
     stream.expiresInSeconds = Math.max(30, Math.min(86400, Math.round(expire - Date.now() / 1000) - 300));
   }
-  if (audio.length > 1) stream.alternatives = audio.slice(1, 4).map(describeCap);
+  if (variants.length > 1) stream.alternatives = variants.slice(1, 5).map(describeCap);
+  kino.log("captured: variantes sin anuncios =", variants.length);
   return stream;
 }
 
