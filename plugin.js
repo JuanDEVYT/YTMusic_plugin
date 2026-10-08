@@ -12,7 +12,8 @@ const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC"];
 
-// Clientes para /player, en orden de preferencia. Si uno deja de funcionar, se actualiza aquí.
+// Clientes para /player, en orden de preferencia. El cliente IOS se quitó: sus URLs dan 403 sin el token
+// que solo genera el reproductor real. Si este deja de funcionar, resolve() usa el navegador oculto.
 const CLIENTS = [
   {
     ua: "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
@@ -25,18 +26,6 @@ const CLIENTS = [
       osName: "Android",
       osVersion: "12L",
       androidSdkVersion: 32,
-    },
-  },
-  {
-    ua: "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
-    id: "5",
-    client: {
-      clientName: "IOS",
-      clientVersion: "20.10.4",
-      deviceMake: "Apple",
-      deviceModel: "iPhone16,2",
-      osName: "iPhone",
-      osVersion: "18.3.2.22D82",
     },
   },
 ];
@@ -533,10 +522,10 @@ async function playerFor(videoId) {
   });
 }
 
-export async function resolve(ref) {
-  const p = parseRef(ref);
-  if (!p || p.type !== "t" || !/^[A-Za-z0-9_-]{11}$/.test(p.id)) throw kino.error("not_found", "ref de pista no válido");
-  const { client, sd, ordered } = await playerFor(p.id);
+// --- Camino 1: URL directa pedida a /player (rápido, pero YouTube lo bloquea a veces) ---------
+
+async function resolveDirect(videoId) {
+  const { client, sd, ordered } = await playerFor(videoId);
   const headers = { "User-Agent": client.ua };
   const first = ordered[0];
   const stream = { url: first.url, mime: mimeOf(first), headers, label: describe(first) };
@@ -547,6 +536,93 @@ export async function resolve(ref) {
   const others = ordered.slice(1, 3).map((f) => ({ url: f.url, mime: mimeOf(f), headers, label: describe(f) }));
   if (others.length) stream.alternatives = others;
   return stream;
+}
+
+// --- Camino 2: el reproductor real de YouTube Music en el navegador oculto de Kino ------------
+// La página genera la URL con todos sus tokens; Kino no la gasta y nos la entrega con los
+// encabezados que la página usó. Hay que quitarle los parámetros de rango/trozo del reproductor web.
+
+function queryParam(url, name) {
+  const q = url.indexOf("?") < 0 ? "" : url.slice(url.indexOf("?") + 1);
+  for (const part of q.split("&")) {
+    const i = part.indexOf("=");
+    if ((i < 0 ? part : part.slice(0, i)) === name) {
+      try {
+        return decodeURIComponent(i < 0 ? "" : part.slice(i + 1));
+      } catch (e) {
+        return "";
+      }
+    }
+  }
+  return "";
+}
+
+function stripParams(url, names) {
+  const i = url.indexOf("?");
+  if (i < 0) return url;
+  const kept = url
+    .slice(i + 1)
+    .split("&")
+    .filter((part) => !names.includes(part.split("=")[0]));
+  return url.slice(0, i) + (kept.length ? "?" + kept.join("&") : "");
+}
+
+async function resolveViaBrowser(videoId) {
+  let page;
+  try {
+    page = await kino.browser.capture("https://music.youtube.com/watch?v=" + videoId, {
+      match: "videoplayback",
+      timeoutMs: 22000,
+    });
+  } catch (e) {
+    kino.log("browser capture:", e.code || "error");
+    if (e.code === "blocked") {
+      throw kino.error("unavailable", "capture blocked", { userMessage: "YouTube pidió verificar que eres una persona. Prueba de nuevo más tarde." });
+    }
+    if (e.code === "timeout" || e.code === "busy") {
+      throw kino.error("unavailable", "capture " + e.code, { userMessage: "YouTube no respondió a tiempo. Prueba de nuevo." });
+    }
+    throw e;
+  }
+  const audio = (page.media || []).filter((m) => m && /^audio\//.test(queryParam(m.url, "mime")));
+  if (!audio.length) {
+    kino.log("browser capture: sin audio entre", (page.media || []).length, "peticiones");
+    throw kino.error("unavailable", "capture sin audio", { userMessage: "YouTube no entregó esta canción por ahora. Prueba de nuevo en unos minutos." });
+  }
+  const m = audio[0];
+  const url = stripParams(m.url, ["range", "rn", "rbuf"]);
+  const stream = { url, mime: queryParam(url, "mime"), headers: m.headers || {}, label: "YouTube Music" };
+  const dur = Number(queryParam(url, "dur"));
+  if (Number.isFinite(dur) && dur > 0) stream.durationMs = Math.round(dur * 1000);
+  const expire = Number(queryParam(url, "expire"));
+  if (Number.isFinite(expire) && expire > 0) {
+    stream.expiresInSeconds = Math.max(30, Math.min(86400, Math.round(expire - Date.now() / 1000) - 300));
+  }
+  return stream;
+}
+
+export async function resolve(ref) {
+  const p = parseRef(ref);
+  if (!p || p.type !== "t" || !/^[A-Za-z0-9_-]{11}$/.test(p.id)) throw kino.error("not_found", "ref de pista no válido");
+  const canBrowse = !!(kino.browser && typeof kino.browser.capture === "function");
+  const mode = kino.config.get("method") || "auto";
+  let directError = null;
+  if (mode !== "browser" || !canBrowse) {
+    try {
+      return await resolveDirect(p.id);
+    } catch (e) {
+      if (e.code === "host_not_allowed" || e.code === "not_found" || e.code === "geo_blocked" || !canBrowse) throw e;
+      directError = e;
+      kino.log("directo falló, uso el navegador oculto:", e.code || "error");
+    }
+  }
+  try {
+    return await resolveViaBrowser(p.id);
+  } catch (e) {
+    // Sin permiso o sin WebView en este aparato: mejor el error del camino directo.
+    if (directError && (e.code === "not_allowed" || e.code === "browser_unavailable")) throw directError;
+    throw e;
+  }
 }
 
 // ---------------------------------------------------------------------------------------------

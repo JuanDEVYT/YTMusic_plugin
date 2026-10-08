@@ -1,7 +1,7 @@
 {
   "id": "ytmusic",
   "name": "YouTube Music",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "apiVersion": 8,
   "entry": "plugin.js",
   "description": "Busca y reproduce música de YouTube Music; con tu sesión ves tus Me gusta y tus listas",
@@ -12,7 +12,13 @@
     "www.youtube.com",
     "*.googlevideo.com"
   ],
-  "capabilities": ["search", "home", "browse", "episodes", "resolve"],
+  "capabilities": [
+    "search",
+    "home",
+    "browse",
+    "episodes",
+    "resolve"
+  ],
   "color": "#FF3D3D",
   "debug": false,
   "telemetry": false,
@@ -23,11 +29,35 @@
       "type": "section",
       "hint": "Opcional. Sin sesión buscas y reproduces como invitado. Con sesión ves tu Inicio personal, tus Me gusta y tus listas. Mira el README para copiar tus cookies en tres partes de máximo 500 caracteres."
     },
-    { "key": "cookieA", "label": "Cookies (parte 1)", "type": "password", "hint": "Primeros 500 caracteres" },
-    { "key": "cookieB", "label": "Cookies (parte 2)", "type": "password", "hint": "Siguientes 500 caracteres, si hacen falta" },
-    { "key": "cookieC", "label": "Cookies (parte 3)", "type": "password", "hint": "Resto, si hace falta" },
-    { "key": "linked", "label": "Estado de la sesión", "type": "status" },
-    { "key": "logout", "label": "Cerrar sesión", "type": "action", "confirm": "¿Olvidar las cookies guardadas en todos tus aparatos?" },
+    {
+      "key": "cookieA",
+      "label": "Cookies (parte 1)",
+      "type": "password",
+      "hint": "Primeros 500 caracteres"
+    },
+    {
+      "key": "cookieB",
+      "label": "Cookies (parte 2)",
+      "type": "password",
+      "hint": "Siguientes 500 caracteres, si hacen falta"
+    },
+    {
+      "key": "cookieC",
+      "label": "Cookies (parte 3)",
+      "type": "password",
+      "hint": "Resto, si hace falta"
+    },
+    {
+      "key": "linked",
+      "label": "Estado de la sesión",
+      "type": "status"
+    },
+    {
+      "key": "logout",
+      "label": "Cerrar sesión",
+      "type": "action",
+      "confirm": "¿Olvidar las cookies guardadas en todos tus aparatos?"
+    },
     {
       "key": "playback",
       "label": "Reproducción",
@@ -39,9 +69,32 @@
       "type": "select",
       "default": "aac",
       "options": [
-        { "value": "aac", "label": "AAC (más compatible)" },
-        { "value": "opus", "label": "Opus (más calidad)" }
+        {
+          "value": "aac",
+          "label": "AAC (más compatible)"
+        },
+        {
+          "value": "opus",
+          "label": "Opus (más calidad)"
+        }
+      ]
+    },
+    {
+      "key": "method",
+      "label": "Método de reproducción",
+      "type": "select",
+      "default": "auto",
+      "options": [
+        {
+          "value": "auto",
+          "label": "Automático"
+        },
+        {
+          "value": "browser",
+          "label": "Solo navegador oculto"
+        }
       ]
     }
-  ]
+  ],
+  "browser": true
 }

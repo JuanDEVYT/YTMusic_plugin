@@ -5,7 +5,7 @@ Plugin de música para Kino (apiVersion 8, Kino 0.9.54 o superior): busca, explo
 ## Qué hace y qué no
 
 - Búsqueda de canciones, álbumes y listas; filas de Inicio; álbumes y listas con paginación.
-- Reproducción de audio (AAC u Opus, a tu elección en Ajustes).
+- Reproducción de audio. Primero intenta una URL directa (AAC u Opus, a tu elección en Ajustes) y, si YouTube la bloquea, abre `music.youtube.com` en el **navegador oculto de Kino** y toma la URL que genera el reproductor real. En Ajustes, "Método de reproducción" permite forzar solo el navegador oculto.
 - **No** descarga (no declara `download`), no hay artistas ni podcasts todavía, y no ofrece el audio Premium de 256 kbps.
 
 ## Iniciar sesión (opcional)
@@ -31,7 +31,7 @@ Las cookies equivalen a tu sesión de Google: no las compartas. Se guardan cifra
 ## Advertencias
 
 - Usar un cliente no oficial va contra las condiciones de servicio de YouTube. Úsalo con criterio y, si te preocupa tu cuenta, no inicies sesión (como invitado funciona la búsqueda y la reproducción).
-- La reproducción imita a un cliente oficial (`CLIENTS` en `plugin.js`). YouTube cambia esto cada tanto (por ejemplo, exigiendo PO tokens): si deja de sonar, es lo primero que hay que actualizar. Con `"debug": true` el Registro dice qué cliente falló y por qué.
+- El camino directo imita a un cliente oficial (`CLIENTS` en `plugin.js`) y YouTube lo bloquea a ratos (`LOGIN_REQUIRED`). Por eso el plugin declara `"browser": true`: Kino muestra en rojo "Puede abrir páginas web ocultas para encontrar el video" y hay que aceptarlo. La página oculta empieza sin cookies, así que ese camino reproduce como invitado (puede haber anuncios si YouTube los pone) y tarda unos segundos más. Si Kino devuelve `blocked`, YouTube pidió verificar que eres una persona y Kino nunca resuelve eso: prueba más tarde. Con `"debug": true` el Registro dice qué camino falló y por qué.
 - Las URLs de audio van atadas a tu conexión; por eso el plugin las pide en el aparato y Kino las renueva al caducar.
 
 ## Probar y publicar
