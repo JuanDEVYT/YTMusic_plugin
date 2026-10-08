@@ -10,7 +10,7 @@ const API = "https://music.youtube.com/youtubei/v1/";
 const ORIGIN = "https://music.youtube.com";
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
-const VERSION = "0.3.3";
+const VERSION = "0.3.4";
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC"];
 
 // Clientes para /player, en orden de preferencia. ANDROID_VR entrega URLs directas de audio; de IOS se
@@ -562,6 +562,17 @@ async function playerFor(videoId) {
     }
     kino.log("player", c.client.clientName, "OK", hlsUrl ? "hls" : "", ordered.length + " formatos de audio");
     const found = { client: c, sd, ordered, hlsUrl };
+    // Diagnóstico sin datos personales: a qué familia de IP está atada la URL (v4/v6), el cliente y los nombres de los parámetros.
+    const sample = (ordered[0] && ordered[0].url) || "";
+    const ipParam = queryParam(sample, "ip");
+    kino.log(
+      "url:",
+      "ip=" + (ipParam ? (ipParam.indexOf(":") >= 0 ? "v6" : "v4") : "?"),
+      "c=" + queryParam(sample, "c"),
+      "ratebypass=" + (queryParam(sample, "ratebypass") ? "si" : "no"),
+      "pot=" + (queryParam(sample, "pot") ? "si" : "no"),
+      "keys=" + (sample.indexOf("?") < 0 ? "" : sample.slice(sample.indexOf("?") + 1).split("&").map((x) => x.split("=")[0]).join(",")).slice(0, 300),
+    );
     // ¿Sirve de verdad? Se prueba la primera URL; si googlevideo la rechaza, se sigue con el cliente siguiente.
     const st = await probeUrl(hlsUrl || ordered[0].url, c.ua, !!hlsUrl);
     kino.log("probe", c.client.clientName, hlsUrl ? "hls" : "itag " + ordered[0].itag, "->", st);
