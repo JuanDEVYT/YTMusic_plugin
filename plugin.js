@@ -492,10 +492,25 @@ async function visitorData() {
   return "";
 }
 
+// Prueba una URL de audio (o el manifiesto HLS) desde el propio plugin: 2 bytes, mismos encabezados que usará el reproductor.
+async function probeUrl(url, ua, isHls) {
+  try {
+    const r = await kino.fetch(url, {
+      headers: Object.assign({ "User-Agent": ua }, isHls ? {} : { Range: "bytes=0-1" }),
+      cookies: false,
+      timeoutMs: 8000,
+    });
+    return r.status;
+  } catch (e) {
+    return String(e.code || "error");
+  }
+}
+
 async function playerFor(videoId) {
   const { hl, gl } = locale();
   const vd = await visitorData();
   let lastStatus = null;
+  let fallback = null;
   for (const c of CLIENTS) {
     let r;
     try {
@@ -545,8 +560,14 @@ async function playerFor(videoId) {
       continue;
     }
     kino.log("player", c.client.clientName, "OK", hlsUrl ? "hls" : "", ordered.length + " formatos de audio");
-    return { client: c, sd, ordered, hlsUrl };
+    const found = { client: c, sd, ordered, hlsUrl };
+    // ¿Sirve de verdad? Se prueba la primera URL; si googlevideo la rechaza, se sigue con el cliente siguiente.
+    const st = await probeUrl(hlsUrl || ordered[0].url, c.ua, !!hlsUrl);
+    kino.log("probe", c.client.clientName, hlsUrl ? "hls" : "itag " + ordered[0].itag, "->", st);
+    if (st === 200 || st === 206) return found;
+    if (!fallback) fallback = found;
   }
+  if (fallback) return fallback; // ninguna pasó la prueba: se entrega la primera por si el reproductor sí la acepta
   const reason = String((lastStatus && lastStatus.reason) || "");
   if (/country|region|pa[ií]s|regi[oó]n/i.test(reason)) throw kino.error("geo_blocked", reason.slice(0, 150));
   if (lastStatus && lastStatus.status && lastStatus.status !== "LOGIN_REQUIRED" && lastStatus.status !== "ERROR") {
