@@ -10,24 +10,12 @@ const API = "https://music.youtube.com/youtubei/v1/";
 const ORIGIN = "https://music.youtube.com";
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
+const VERSION = "0.3.3";
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC"];
 
 // Clientes para /player, en orden de preferencia. ANDROID_VR entrega URLs directas de audio; de IOS se
 // usa el manifiesto HLS (sus URLs sueltas dan 403 sin el token del reproductor web). Lo que caduca está aquí.
 const CLIENTS = [
-  {
-    ua: "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
-    id: "28",
-    client: {
-      clientName: "ANDROID_VR",
-      clientVersion: "1.65.10",
-      deviceMake: "Oculus",
-      deviceModel: "Quest 3",
-      osName: "Android",
-      osVersion: "12L",
-      androidSdkVersion: 32,
-    },
-  },
   {
     ua: "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
     id: "5",
@@ -39,6 +27,19 @@ const CLIENTS = [
       deviceModel: "iPhone16,2",
       osName: "iPhone",
       osVersion: "18.3.2.22D82",
+    },
+  },
+  {
+    ua: "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+    id: "28",
+    client: {
+      clientName: "ANDROID_VR",
+      clientVersion: "1.65.10",
+      deviceMake: "Oculus",
+      deviceModel: "Quest 3",
+      osName: "Android",
+      osVersion: "12L",
+      androidSdkVersion: 32,
     },
   },
 ];
@@ -734,6 +735,7 @@ async function resolveViaBrowser(videoId) {
 }
 
 export async function resolve(ref) {
+  kino.log("ytmusic v" + VERSION + " resolve");
   const p = parseRef(ref);
   if (!p || p.type !== "t" || !/^[A-Za-z0-9_-]{11}$/.test(p.id)) throw kino.error("not_found", "ref de pista no válido");
   const canBrowse = !!(kino.browser && typeof kino.browser.capture === "function");
