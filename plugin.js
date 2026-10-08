@@ -10,7 +10,7 @@ const API = "https://music.youtube.com/youtubei/v1/";
 const ORIGIN = "https://music.youtube.com";
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
-const VERSION = "0.3.5";
+const VERSION = "0.4.0";
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC"];
 
 // Clientes para /player, en orden de preferencia. VISIONOS entrega URLs directas de audio que googlevideo
@@ -60,6 +60,10 @@ const CLIENTS = [
 
 const T_ALBUM = "MUSIC_PAGE_TYPE_ALBUM";
 const T_PLAYLIST = "MUSIC_PAGE_TYPE_PLAYLIST";
+// Filtros de búsqueda de YouTube Music (el parámetro `params` de /search).
+const SEARCH_SONGS = "EgWKAQIIAWoMEA4QChADEAQQCRAF";
+const SEARCH_ALBUMS = "EgWKAQIYAWoMEA4QChADEAQQCRAF";
+const SEARCH_LISTS = "EgeKAQQoADgBagwQDhAKEAMQBBAJEAU%3D";
 const T_ARTISTS = ["MUSIC_PAGE_TYPE_ARTIST", "MUSIC_PAGE_TYPE_USER_CHANNEL"];
 
 // ---------------------------------------------------------------------------------------------
@@ -235,7 +239,7 @@ function parseList(r) {
   if (browse && browse.browseId) {
     const pt = pageTypeOf(r.navigationEndpoint);
     if (pt !== T_ALBUM && pt !== T_PLAYLIST) return null; // artistas, podcasts…: fuera de esta versión
-    return Object.assign(base, { type: "browse", id: browse.browseId });
+    return Object.assign(base, { type: "browse", id: browse.browseId, label: pt === T_ALBUM ? "Álbum" : "Lista" });
   }
   const overlay =
     r.overlay &&
@@ -267,7 +271,7 @@ function parseTwoRow(t) {
   if (nav.browseEndpoint && nav.browseEndpoint.browseId) {
     const pt = pageTypeOf(nav);
     if (pt !== T_ALBUM && pt !== T_PLAYLIST) return null;
-    return Object.assign(base, { type: "browse", id: nav.browseEndpoint.browseId });
+    return Object.assign(base, { type: "browse", id: nav.browseEndpoint.browseId, label: pt === T_ALBUM ? "Álbum" : "Lista" });
   }
   return null;
 }
@@ -332,7 +336,7 @@ function headerOf(data) {
 // ---------------------------------------------------------------------------------------------
 // Items y refs
 //   ref de una pista:   "t:<videoId>|<título>"   (el título solo sirve para rotular el capítulo)
-//   ref de álbum/lista: "b:<browseId>"
+//   ref de álbum/lista: "b:<browseId>"  (o "b:<browseId>@<params>" para los estados de ánimo y géneros)
 // ---------------------------------------------------------------------------------------------
 
 function trackRef(id, title) {
@@ -340,15 +344,15 @@ function trackRef(id, title) {
 }
 
 function parseRef(ref) {
-  const m = /^([tb]):([^|]+)(?:\|(.*))?$/.exec(String(ref || ""));
+  const m = /^([tb]):([^|@]+)(?:@([^|]*))?(?:\|(.*))?$/.exec(String(ref || ""));
   if (!m) return null;
   let title = "";
   try {
-    title = decodeURIComponent(m[3] || "");
+    title = decodeURIComponent(m[4] || "");
   } catch (e) {
     title = "";
   }
-  return { type: m[1], id: m[2], title };
+  return { type: m[1], id: m[2], params: m[3] || "", title };
 }
 
 function toItem(x) {
@@ -356,7 +360,9 @@ function toItem(x) {
   if (x.type === "track") {
     it.id = "t." + x.id;
     it.ref = trackRef(x.id, x.title);
+    it.badges = ["Canción"];
   } else {
+    if (x.label) it.badges = [x.label];
     it.id = "b." + x.id;
     it.ref = "b:" + x.id;
   }
@@ -373,45 +379,17 @@ const validId = (x) => /^[A-Za-z0-9._~-]{1,120}$/.test(x.id);
 // Capacidades
 // ---------------------------------------------------------------------------------------------
 
-export async function search(query) {
-  const q = String((query && query.q) || "").trim();
-  if (!q) return [];
-  const data = await yt("search", { query: q });
-  return collectItems(data).filter(validId).slice(0, 100).map(toItem);
-}
-
-async function libraryRows() {
+// Una página de YouTube Music vista como filas (las repisas "carrusel" de Inicio, Explorar, Tendencias…).
+function rowsFromShelves(data, prefix, max, fallbackTitle) {
   const rows = [];
-  try {
-    const liked = shelfOf(await yt("browse", { browseId: "VLLM" }));
-    const items = collectItems(liked).filter((x) => x.type === "track" && validId(x)).slice(0, 60).map(toItem);
-    if (items.length) rows.push({ id: "yt-liked", title: "Canciones que te gustan", items, ref: "b:VLLM", genre: "musica" });
-  } catch (e) {
-    kino.log("library liked:", e.code || "error");
-  }
-  try {
-    const lists = collectItems(await yt("browse", { browseId: "FEmusic_liked_playlists" }))
-      .filter((x) => x.type === "browse" && x.id !== "VLLM" && validId(x))
-      .slice(0, 60)
-      .map(toItem);
-    if (lists.length) rows.push({ id: "yt-lists", title: "Tus listas", items: lists, ref: "b:FEmusic_liked_playlists", genre: "musica" });
-  } catch (e) {
-    kino.log("library lists:", e.code || "error");
-  }
-  return rows;
-}
-
-export async function home() {
-  const rows = savedCookie() ? await libraryRows() : [];
-  const data = await yt("browse", { browseId: "FEmusic_home" });
   for (const shelf of findAll(data, "musicCarouselShelfRenderer")) {
-    if (rows.length >= 20) break;
+    if (rows.length >= max) break;
     const header = shelf.header && shelf.header.musicCarouselShelfBasicHeaderRenderer;
     const title = txt(header && header.title).trim();
     if (!title) continue;
     const items = collectItems(shelf.contents).filter(validId).slice(0, 60).map(toItem);
     if (!items.length) continue;
-    const row = { id: "yt" + rows.length, title: title.slice(0, 200), items, genre: "musica" };
+    const row = { id: (prefix + rows.length).slice(0, 60), title: title.slice(0, 200), items, genre: "musica" };
     const more =
       header.moreContentButton &&
       header.moreContentButton.buttonRenderer &&
@@ -420,13 +398,158 @@ export async function home() {
     if (more && more.browseId) row.ref = "b:" + more.browseId;
     rows.push(row);
   }
+  // Páginas en cuadrícula (p. ej. "Nuevos álbumes"): una sola fila con todo lo que haya.
+  if (!rows.length && fallbackTitle) {
+    const items = collectItems(data).filter(validId).slice(0, 60).map(toItem);
+    if (items.length) rows.push({ id: prefix + "0", title: fallbackTitle, items, genre: "musica" });
+  }
   return rows;
+}
+
+// Una llamada que puede fallar sin tumbar al resto (se anota en el Registro, nunca con datos personales).
+async function safe(label, fn, fallback) {
+  try {
+    return await fn();
+  } catch (e) {
+    kino.log(label + ":", (e && e.code) || "error");
+    return fallback;
+  }
+}
+
+// -- Búsqueda ----------------------------------------------------------------------------------
+// Pide a la vez la búsqueda general y las filtradas (canciones, álbumes, listas) y las junta sin repetir:
+// primero las canciones, luego álbumes y listas, y al final lo que solo salió en la búsqueda general.
+export async function search(query) {
+  const q = String((query && query.q) || "").trim();
+  if (!q) return [];
+  // Dentro de una página de "Ver más": que Kino filtre los títulos ya cargados.
+  if (query && query.within) return null;
+  const [songs, albums, lists, general] = await Promise.all([
+    safe("search songs", () => yt("search", { query: q, params: SEARCH_SONGS }), null),
+    safe("search albums", () => yt("search", { query: q, params: SEARCH_ALBUMS }), null),
+    safe("search lists", () => yt("search", { query: q, params: SEARCH_LISTS }), null),
+    safe("search general", () => yt("search", { query: q }), null),
+  ]);
+  if (!songs && !albums && !lists && !general) throw kino.error("unavailable", "search sin respuesta");
+  const pick = (d, n) => (d ? collectItems(d).filter(validId).slice(0, n) : []);
+  const out = [];
+  const seen = new Set();
+  for (const x of [].concat(pick(songs, 25), pick(albums, 15), pick(lists, 10), pick(general, 60))) {
+    const k = x.type + x.id;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(x);
+    if (out.length >= 100) break;
+  }
+  return out.map(toItem);
+}
+
+// -- Biblioteca (con sesión) ---------------------------------------------------------------------
+async function libraryRows() {
+  const rows = [];
+  const [likedData, listsData, historyData] = await Promise.all([
+    safe("library liked", () => yt("browse", { browseId: "VLLM" }), null),
+    safe("library lists", () => yt("browse", { browseId: "FEmusic_liked_playlists" }), null),
+    safe("library history", () => yt("browse", { browseId: "FEmusic_history" }), null),
+  ]);
+  if (likedData) {
+    const items = collectItems(shelfOf(likedData)).filter((x) => x.type === "track" && validId(x)).slice(0, 60).map(toItem);
+    if (items.length) rows.push({ id: "yt-liked", title: "Canciones que te gustan", items, ref: "b:VLLM", genre: "musica" });
+  }
+  if (listsData) {
+    const items = collectItems(listsData).filter((x) => x.type === "browse" && x.id !== "VLLM" && validId(x)).slice(0, 60).map(toItem);
+    if (items.length) rows.push({ id: "yt-lists", title: "Tus listas", items, ref: "b:FEmusic_liked_playlists", genre: "musica" });
+  }
+  if (historyData) {
+    const items = collectItems(historyData).filter((x) => x.type === "track" && validId(x)).slice(0, 40).map(toItem);
+    if (items.length) rows.push({ id: "yt-history", title: "Escuchado hace poco", items, ref: "b:FEmusic_history", genre: "musica" });
+  }
+  return rows;
+}
+
+export async function home() {
+  const rows = savedCookie() ? await libraryRows() : [];
+  const data = await yt("browse", { browseId: "FEmusic_home" });
+  return rows.concat(rowsFromShelves(data, "yt", 20 - rows.length));
+}
+
+// -- Sección propia de YouTube Music (pestañas, destacado y filas) ---------------------------------
+const TAB_HOME = "inicio";
+const TAB_EXPLORE = "explorar";
+const TAB_CHARTS = "tendencias";
+const TAB_LIBRARY = "biblioteca";
+
+function sectionTabs() {
+  const tabs = [
+    { id: TAB_HOME, label: "Para ti" },
+    { id: TAB_EXPLORE, label: "Explorar" },
+    { id: TAB_CHARTS, label: "Tendencias" },
+  ];
+  if (savedCookie()) tabs.push({ id: TAB_LIBRARY, label: "Biblioteca" });
+  return tabs;
+}
+
+// El destacado del día: una pista, álbum o lista con portada, que cambia cada 24 h.
+function heroOf(rows) {
+  const pool = [];
+  for (const r of rows) for (const it of r.items) if (it.poster) pool.push(it);
+  if (!pool.length) return null;
+  const it = pool[Math.floor(Date.now() / 86400000) % Math.min(pool.length, 12)];
+  const hero = { title: it.title.slice(0, 200), image: it.poster };
+  hero.text = (it.artist ? "De " + it.artist + ". " : "") + "Tu selección de hoy en YouTube Music.";
+  hero.text = hero.text.slice(0, 300);
+  return hero;
+}
+
+export async function section(arg) {
+  const tabs = sectionTabs();
+  const wanted = arg && arg.tab;
+  const tab = tabs.some((t) => t.id === wanted) ? wanted : TAB_HOME;
+  let rows = [];
+  if (tab === TAB_HOME) {
+    rows = rowsFromShelves(await yt("browse", { browseId: "FEmusic_home" }), "inicio", 14);
+  } else if (tab === TAB_EXPLORE) {
+    const [explore, releases] = await Promise.all([
+      yt("browse", { browseId: "FEmusic_explore" }),
+      safe("explore releases", () => yt("browse", { browseId: "FEmusic_new_releases_albums" }), null),
+    ]);
+    rows = releases ? rowsFromShelves(releases, "nuevos", 1, "Nuevos álbumes") : [];
+    rows = rows.concat(rowsFromShelves(explore, "explorar", 12));
+  } else if (tab === TAB_CHARTS) {
+    rows = rowsFromShelves(await yt("browse", { browseId: "FEmusic_charts" }), "tendencias", 10);
+  } else if (tab === TAB_LIBRARY) {
+    rows = await libraryRows();
+  }
+  const answer = { tabs, tab, rows: rows.slice(0, 20) };
+  const hero = tab === TAB_LIBRARY ? null : heroOf(answer.rows);
+  if (hero) answer.hero = hero;
+  return answer;
+}
+
+// -- Categorías: los "estados de ánimo y géneros" de YouTube Music -------------------------------
+export async function categories() {
+  const data = await safe("categories", () => yt("browse", { browseId: "FEmusic_moods_and_genres" }), null);
+  if (!data) return [];
+  const out = [];
+  const seen = new Set();
+  for (const b of findAll(data, "musicNavigationButtonRenderer")) {
+    const title = txt(b.buttonText).trim();
+    const ep = b.clickCommand && b.clickCommand.browseEndpoint;
+    if (!title || !ep || !ep.browseId || seen.has(title)) continue;
+    seen.add(title);
+    const ref = "b:" + ep.browseId + (ep.params ? "@" + ep.params : "");
+    if (ref.length > 4000) continue;
+    out.push({ id: "m" + kino.crypto.hash("md5", ref).slice(0, 12), title: title.slice(0, 40), ref });
+    if (out.length >= 24) break;
+  }
+  return out;
 }
 
 export async function browse(ref, cursor) {
   const p = parseRef(ref);
   if (!p || p.type !== "b") return { items: [] };
-  const data = cursor ? await yt("browse", { continuation: cursor }) : await yt("browse", { browseId: p.id });
+  const body = cursor ? { continuation: cursor } : p.params ? { browseId: p.id, params: p.params } : { browseId: p.id };
+  const data = await yt("browse", body);
   const shelf = shelfOf(data);
   const items = collectItems(shelf).filter(validId).slice(0, 100).map(toItem);
   const next = nextToken(shelf, data);

@@ -1,6 +1,14 @@
 # YouTube Music para Kino
 
-Plugin de música para Kino (apiVersion 8, Kino 0.9.54 o superior): busca, explora el Inicio, abre álbumes y listas, y reproduce el audio de YouTube Music. Con tu sesión, también ves tus **Me gusta** y **tus listas**.
+Plugin de música para Kino (apiVersion 8, Kino 0.9.54 o superior): busca, explora una sección propia, abre álbumes y listas, y reproduce el audio de YouTube Music. Con tu sesión, también ves tus **Me gusta** y **tus listas**.
+
+## Novedades de la 0.4.0
+
+- **Tema rojo de YouTube Music** (`theme` en el manifiesto): fondo casi negro, superficies grises y acento rojo-carmesí `#FF0050`. Kino rechaza acentos demasiado parecidos a su propio rojo (`#E50914`, distancia mínima 25 en CIE76), por eso el acento es un rojo algo más carmesí que el `#FF0000` oficial.
+- **Icono propio** (`icon.png`, 512×512, 120 KB; el límite es 128 KB) con una nota musical y barras de ecualizador. Si prefieres otro, sustituye `icon.png` (y `icon.svg`) por tu imagen.
+- **Sección propia "YT Music"** (en la barra lateral de TV y como chip sobre Inicio en el teléfono) con pestañas **Para ti**, **Explorar** (nuevos álbumes y lo que sugiere YouTube), **Tendencias** (charts) y **Biblioteca** (solo con sesión: Me gusta, tus listas y lo escuchado hace poco), más un destacado con portada que cambia cada día.
+- **Categorías**: los "estados de ánimo y géneros" de YouTube Music como mosaicos.
+- **Búsqueda mejorada**: pide a la vez canciones, álbumes y listas, las junta sin repetir (canciones primero) y marca cada resultado con una etiqueta *Canción*, *Álbum* o *Lista*. Con `scopedSearch` también se puede buscar dentro de un "Ver más".
 
 ## Qué hace y qué no
 
