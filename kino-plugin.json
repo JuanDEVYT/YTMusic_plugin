@@ -1,98 +1,47 @@
 {
-  "id": "archive-org",
-  "name": "Internet Archive",
-  "version": "1.4.2",
-  "apiVersion": 3,
+  "id": "ytmusic",
+  "name": "YouTube Music",
+  "version": "0.1.0",
+  "apiVersion": 8,
   "entry": "plugin.js",
-  "description": "Películas de dominio público y televisión clásica de archive.org",
-  "author": "kinotvapp",
-  "homepage": "https://github.com/kinotvapp/kino-plugin-archive",
+  "description": "Busca y reproduce música de YouTube Music; con tu sesión ves tus Me gusta y tus listas",
+  "author": "JuanDEVYT",
+  "homepage": "https://github.com/JuanDEVYT/YTMusic_plugin",
   "hosts": [
-    "archive.org",
-    "*.archive.org"
+    "music.youtube.com",
+    "www.youtube.com",
+    "*.googlevideo.com"
   ],
-  "capabilities": [
-    "search",
-    "home",
-    "browse",
-    "episodes",
-    "resolve",
-    "download"
-  ],
-  "color": "#E0A030",
-  "icon": "icon.png",
+  "capabilities": ["search", "home", "browse", "episodes", "resolve"],
+  "color": "#FF3D3D",
+  "debug": false,
+  "telemetry": false,
   "settings": [
     {
-      "key": "url1",
-      "label": "Dirección 1",
-      "type": "url",
-      "hint": "https://archive.org/details/… o una búsqueda"
+      "key": "account",
+      "label": "Tu cuenta de YouTube Music",
+      "type": "section",
+      "hint": "Opcional. Sin sesión buscas y reproduces como invitado. Con sesión ves tu Inicio personal, tus Me gusta y tus listas. Mira el README para copiar tus cookies en tres partes de máximo 500 caracteres."
+    },
+    { "key": "cookieA", "label": "Cookies (parte 1)", "type": "password", "hint": "Primeros 500 caracteres" },
+    { "key": "cookieB", "label": "Cookies (parte 2)", "type": "password", "hint": "Siguientes 500 caracteres, si hacen falta" },
+    { "key": "cookieC", "label": "Cookies (parte 3)", "type": "password", "hint": "Resto, si hace falta" },
+    { "key": "linked", "label": "Estado de la sesión", "type": "status" },
+    { "key": "logout", "label": "Cerrar sesión", "type": "action", "confirm": "¿Olvidar las cookies guardadas en todos tus aparatos?" },
+    {
+      "key": "playback",
+      "label": "Reproducción",
+      "type": "section"
     },
     {
-      "key": "cat1",
-      "label": "Categoría 1",
-      "type": "text",
-      "hint": "Opcional: nombre de la fila en el Home"
-    },
-    {
-      "key": "url2",
-      "label": "Dirección 2",
-      "type": "url",
-      "hint": "https://archive.org/details/… o una búsqueda"
-    },
-    {
-      "key": "cat2",
-      "label": "Categoría 2",
-      "type": "text",
-      "hint": "Opcional: nombre de la fila en el Home"
-    },
-    {
-      "key": "url3",
-      "label": "Dirección 3",
-      "type": "url",
-      "hint": "https://archive.org/details/… o una búsqueda"
-    },
-    {
-      "key": "cat3",
-      "label": "Categoría 3",
-      "type": "text",
-      "hint": "Opcional: nombre de la fila en el Home"
-    },
-    {
-      "key": "url4",
-      "label": "Dirección 4",
-      "type": "url",
-      "hint": "https://archive.org/details/… o una búsqueda"
-    },
-    {
-      "key": "cat4",
-      "label": "Categoría 4",
-      "type": "text",
-      "hint": "Opcional: nombre de la fila en el Home"
-    },
-    {
-      "key": "url5",
-      "label": "Dirección 5",
-      "type": "url",
-      "hint": "https://archive.org/details/… o una búsqueda"
-    },
-    {
-      "key": "cat5",
-      "label": "Categoría 5",
-      "type": "text",
-      "hint": "Opcional: nombre de la fila en el Home"
-    },
-    {
-      "key": "url6",
-      "label": "Dirección 6",
-      "type": "url",
-      "hint": "https://archive.org/details/… o una búsqueda"
-    },
-    {
-      "key": "cat6",
-      "label": "Categoría 6",
-      "type": "text",
-      "hint": "Opcional: nombre de la fila en el Home"
+      "key": "quality",
+      "label": "Formato de audio",
+      "type": "select",
+      "default": "aac",
+      "options": [
+        { "value": "aac", "label": "AAC (más compatible)" },
+        { "value": "opus", "label": "Opus (más calidad)" }
+      ]
     }
   ]
 }

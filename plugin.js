@@ -1,500 +1,596 @@
-// Kino plugin: Internet Archive (archive.org) — public-domain films and classic TV.
-// Declared hosts: archive.org and *.archive.org (downloads redirect to a storage node such as
-// dn720705.ca.archive.org).
+/// <reference path="./kino.d.ts" />
+// YouTube Music para Kino · apiVersion 8 (Kino 0.9.54 o superior)
+//
+// - Catálogo (buscar, Inicio, álbumes, listas): API interna de music.youtube.com (cliente WEB_REMIX),
+//   con la sesión de la persona si pegó sus cookies en Ajustes.
+// - Reproducción: la API /player con un cliente que entrega URLs directas de audio, sin descifrar firmas.
+//   Es la parte frágil: YouTube cambia estas reglas cada tanto. Todo lo que puede caducar está en CLIENTS.
 
-const BASE = "https://archive.org";
-const FIELDS = ["identifier", "title", "year", "description"];
-const VALID_ID = /^[A-Za-z0-9._-]{1,100}$/;
-const PLAYABLE_EXT = /\.(mp4|m4v|webm)$/i;
-const SUBTITLE_EXT = /\.(vtt|srt)$/i;
-// Preferred playable files, best first (archive.org's "format" field, lowercased).
-const FORMAT_RANK = ["h.264", "h.264 hd", "mpeg4", "512kb mpeg4"];
-const FILMS = "collection:(feature_films) AND mediatype:(movies)";
-const TV = "collection:(classic_tv) AND mediatype:(movies)";
-const CARTOONS = "collection:(animationandcartoons) AND mediatype:(movies)";
+const API = "https://music.youtube.com/youtubei/v1/";
+const ORIGIN = "https://music.youtube.com";
+const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
+const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
+const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC"];
 
-// kino.log never breaks what it reports on: in Kino 0.9.43 release builds a call to it threw (an R8 rename),
-// which would turn one failed row or title into a failed Home or search.
-function log(...args) {
-  try {
-    kino.log(...args);
-  } catch {
-    // nothing to do: the log line is lost, the result is not
+// Clientes para /player, en orden de preferencia. Si uno deja de funcionar, se actualiza aquí.
+const CLIENTS = [
+  {
+    ua: "com.google.android.apps.youtube.vr.oculus/1.65.10 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+    id: "28",
+    client: {
+      clientName: "ANDROID_VR",
+      clientVersion: "1.65.10",
+      deviceMake: "Oculus",
+      deviceModel: "Quest 3",
+      osName: "Android",
+      osVersion: "12L",
+      androidSdkVersion: 32,
+    },
+  },
+  {
+    ua: "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+    id: "5",
+    client: {
+      clientName: "IOS",
+      clientVersion: "20.10.4",
+      deviceMake: "Apple",
+      deviceModel: "iPhone16,2",
+      osName: "iPhone",
+      osVersion: "18.3.2.22D82",
+    },
+  },
+];
+
+const T_ALBUM = "MUSIC_PAGE_TYPE_ALBUM";
+const T_PLAYLIST = "MUSIC_PAGE_TYPE_PLAYLIST";
+const T_ARTISTS = ["MUSIC_PAGE_TYPE_ARTIST", "MUSIC_PAGE_TYPE_USER_CHANNEL"];
+
+// ---------------------------------------------------------------------------------------------
+// Sesión: las cookies de la persona (ajuste password, cifrado en el aparato)
+// ---------------------------------------------------------------------------------------------
+
+function parseCookie(str) {
+  const jar = {};
+  for (const part of String(str || "").split(";")) {
+    const i = part.indexOf("=");
+    if (i > 0) jar[part.slice(0, i).trim()] = part.slice(i + 1).trim();
   }
+  return jar;
 }
 
-function advancedUrl(query, rows, page = 1, sort = "downloads desc") {
-  const parts = ["q=" + encodeURIComponent(query)];
-  for (const f of FIELDS) parts.push("fl%5B%5D=" + f);
-  parts.push("sort%5B%5D=" + encodeURIComponent(sort), "rows=" + rows, "page=" + page, "output=json");
-  return BASE + "/advancedsearch.php?" + parts.join("&");
+// Une las partes, quita un "Cookie:" del comienzo y vuelve a armar "a=b; c=d" (un corte que cayó
+// justo en un espacio no importa).
+function joinCookie(parts) {
+  const joined = parts
+    .map((v) => v || "")
+    .join("")
+    .replace(/[\r\n\t]+/g, "")
+    .replace(/^\s*cookie:\s*/i, "");
+  const jar = parseCookie(joined);
+  return Object.keys(jar)
+    .map((k) => k + "=" + jar[k])
+    .join("; ");
 }
 
-// Throws only AFTER its first await: in Kino a throw before a function's first await can't be
-// caught by its caller.
-async function getJson(url) {
-  const r = await kino.fetch(url);
-  if (!r.ok) throw new Error("archive.org respondió " + r.status);
+function savedCookie() {
+  return joinCookie(COOKIE_KEYS.map((k) => kino.config.get(k)));
+}
+
+function authHeaders(cookie) {
+  if (!cookie) return {};
+  const h = { Cookie: cookie, "X-Goog-AuthUser": "0" };
+  const jar = parseCookie(cookie);
+  const sid = jar.SAPISID || jar["__Secure-3PAPISID"];
+  if (sid) {
+    const ts = Math.floor(Date.now() / 1000);
+    h.Authorization = "SAPISIDHASH " + ts + "_" + kino.crypto.hash("sha1", ts + " " + sid + " " + ORIGIN);
+  }
+  return h;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Llamadas a la API interna de YouTube Music
+// ---------------------------------------------------------------------------------------------
+
+function locale() {
+  const parts = String(kino.lang || "en-US").split(/[-_]/);
+  const region = parts[1] || "";
+  return { hl: (parts[0] || "en").toLowerCase(), gl: /^[A-Za-z]{2}$/.test(region) ? region.toUpperCase() : "US" };
+}
+
+function webClientVersion() {
+  const d = new Date(Date.now() - 2 * 86400000);
+  const p = (n) => String(n).padStart(2, "0");
+  return "1." + d.getUTCFullYear() + p(d.getUTCMonth() + 1) + p(d.getUTCDate()) + ".01.00";
+}
+
+async function yt(endpoint, body, opts) {
+  await null;
+  const cookie = opts && opts.cookie !== undefined ? opts.cookie : savedCookie();
+  const { hl, gl } = locale();
+  const headers = Object.assign(
+    {
+      "Content-Type": "application/json",
+      "User-Agent": WEB_UA,
+      Accept: "*/*",
+      Origin: ORIGIN,
+      Referer: ORIGIN + "/",
+      "X-Origin": ORIGIN,
+    },
+    authHeaders(cookie),
+  );
+  const payload = Object.assign(
+    { context: { client: { clientName: "WEB_REMIX", clientVersion: webClientVersion(), hl, gl }, user: {} } },
+    body || {},
+  );
+  const r = await kino.fetch(API + endpoint + "?prettyPrint=false", {
+    method: "POST",
+    headers,
+    body: { json: payload },
+    cookies: !cookie, // con sesión mandamos nuestra cabecera Cookie tal cual; sin sesión, el tarro normal
+    timeoutMs: 20000,
+  });
+  if (r.status === 401 || (cookie && r.status === 403)) {
+    throw kino.error("auth_required", "youtubei " + endpoint + " " + r.status, {
+      userMessage: "La sesión de YouTube Music venció. Vuelve a copiar tus cookies en Ajustes.",
+    });
+  }
+  if (r.status === 429) throw kino.error("rate_limited", "youtubei " + endpoint + " 429");
+  if (!r.ok) throw kino.error("unavailable", "youtubei " + endpoint + " " + r.status);
   return r.json();
 }
 
-function first(v) {
-  return Array.isArray(v) ? v[0] : v;
+// ---------------------------------------------------------------------------------------------
+// Lectura de las respuestas (recorren el JSON buscando por nombre: aguantan que YouTube mueva cosas)
+// ---------------------------------------------------------------------------------------------
+
+function findAll(root, key) {
+  const out = [];
+  const stack = [root];
+  while (stack.length) {
+    const n = stack.pop();
+    if (!n || typeof n !== "object") continue;
+    if (Array.isArray(n)) {
+      for (let i = n.length - 1; i >= 0; i--) stack.push(n[i]);
+      continue;
+    }
+    const keys = Object.keys(n);
+    for (let i = keys.length - 1; i >= 0; i--) {
+      if (keys[i] === key) out.push(n[key]);
+      else stack.push(n[keys[i]]);
+    }
+  }
+  return out;
 }
 
-function toItem(doc, kind) {
-  const description = [].concat(doc.description || []).join(" ").replace(/<[^>]*>/g, "").trim();
-  return {
-    id: doc.identifier,
-    ref: doc.identifier,
-    title: String(first(doc.title) || doc.identifier),
-    kind,
-    year: doc.year ? String(first(doc.year)) : undefined,
-    poster: BASE + "/services/img/" + encodeURIComponent(doc.identifier),
-    overview: description ? description.slice(0, 400) : undefined,
+const txt = (t) => (t && (t.simpleText || (t.runs || []).map((r) => r.text).join(""))) || "";
+const pageTypeOf = (ep) =>
+  ep &&
+  ep.browseEndpoint &&
+  ep.browseEndpoint.browseEndpointContextSupportedConfigs &&
+  ep.browseEndpoint.browseEndpointContextSupportedConfigs.browseEndpointContextMusicConfig &&
+  ep.browseEndpoint.browseEndpointContextSupportedConfigs.browseEndpointContextMusicConfig.pageType;
+
+function bigThumb(renderer) {
+  const arr = (renderer && renderer.thumbnail && renderer.thumbnail.thumbnails) || [];
+  let u = arr.length ? arr[arr.length - 1].url : "";
+  if (!u) return undefined;
+  if (u.startsWith("//")) u = "https:" + u;
+  if (!/^https?:\/\//.test(u)) return undefined;
+  return u.replace(/=w\d+-h\d+/, "=w544-h544").slice(0, 2048);
+}
+
+function seconds(s) {
+  const m = /^(?:(\d+):)?(\d{1,2}):(\d{2})$/.exec(String(s || "").trim());
+  return m ? (Number(m[1] || 0) * 60 + Number(m[2])) * 60 + Number(m[3]) : 0;
+}
+
+function artistsOf(runs) {
+  return runs
+    .filter((x) => T_ARTISTS.includes(pageTypeOf(x.navigationEndpoint)))
+    .map((x) => x.text)
+    .join(", ");
+}
+
+function yearOf(runs) {
+  const y = runs.find((x) => /^(19|20)\d{2}$/.test(String(x.text).trim()));
+  return y ? String(y.text).trim() : undefined;
+}
+
+// Una fila de lista (resultados de búsqueda, pistas de un álbum o de una lista).
+function parseList(r) {
+  const cols = (r.flexColumns || []).map(
+    (c) => c.musicResponsiveListItemFlexColumnRenderer && c.musicResponsiveListItemFlexColumnRenderer.text,
+  );
+  const title = txt(cols[0]).trim();
+  if (!title) return null;
+  const sub = (cols[1] && cols[1].runs) || [];
+  const fixed = r.fixedColumns && r.fixedColumns[0] && r.fixedColumns[0].musicResponsiveListItemFixedColumnRenderer;
+  const secs = seconds(txt(fixed && fixed.text)) || seconds(sub.length ? sub[sub.length - 1].text : "");
+  const base = {
+    title,
+    artist: artistsOf(sub),
+    year: yearOf(sub),
+    poster: bigThumb(r.thumbnail && r.thumbnail.musicThumbnailRenderer),
+    minutes: secs ? Math.max(1, Math.round(secs / 60)) : undefined,
   };
+  const browse = r.navigationEndpoint && r.navigationEndpoint.browseEndpoint;
+  if (browse && browse.browseId) {
+    const pt = pageTypeOf(r.navigationEndpoint);
+    if (pt !== T_ALBUM && pt !== T_PLAYLIST) return null; // artistas, podcasts…: fuera de esta versión
+    return Object.assign(base, { type: "browse", id: browse.browseId });
+  }
+  const overlay =
+    r.overlay &&
+    r.overlay.musicItemThumbnailOverlayRenderer &&
+    r.overlay.musicItemThumbnailOverlayRenderer.content &&
+    r.overlay.musicItemThumbnailOverlayRenderer.content.musicPlayButtonRenderer;
+  const firstRun = (cols[0] && cols[0].runs && cols[0].runs[0]) || {};
+  const videoId =
+    (r.playlistItemData && r.playlistItemData.videoId) ||
+    (overlay && overlay.playNavigationEndpoint && overlay.playNavigationEndpoint.watchEndpoint && overlay.playNavigationEndpoint.watchEndpoint.videoId) ||
+    (firstRun.navigationEndpoint && firstRun.navigationEndpoint.watchEndpoint && firstRun.navigationEndpoint.watchEndpoint.videoId);
+  if (!videoId) return null;
+  return Object.assign(base, { type: "track", id: videoId });
 }
 
-async function docs(query, rows, page = 1, sort) {
-  const data = await getJson(advancedUrl(query, rows, page, sort));
-  // A query archive.org can't parse still answers 200, with {"error": ...} instead of "response".
-  if (!data.response) throw new Error("archive.org no entendió la búsqueda");
-  return data.response.docs.filter((d) => VALID_ID.test(d.identifier));
-}
-
-// ---- The person's own addresses (Configurar: the "sources" list) ---------------------------------------
-const NEWEST = "addeddate desc";
-
-// One address: a collection or item (archive.org/details/<id>) or a search (archive.org/search?query=...).
-// Anything else, or another site, is left out: the plugin only ever talks to archive.org.
-function parseSource(raw) {
-  const text = String(raw || "").trim();
-  if (!text) return null;
-  let u;
-  try {
-    u = new URL(text);
-  } catch {
-    return null;
-  }
-  if (u.protocol !== "https:" && u.protocol !== "http:") return null;
-  if (u.hostname !== "archive.org" && !u.hostname.endsWith(".archive.org")) return null;
-  const details = /^\/details\/([^/?#]+)/.exec(u.pathname);
-  if (details) {
-    const id = decodeURIComponent(details[1]);
-    return VALID_ID.test(id) ? { kind: "details", id } : null;
-  }
-  if (u.pathname === "/search") {
-    const q = (u.searchParams.get("query") || u.searchParams.get("q") || "").trim();
-    if (q) return { kind: "search", query: q };
+// Un mosaico (Inicio, "Ver más", biblioteca).
+function parseTwoRow(t) {
+  const title = txt(t.title).trim();
+  if (!title) return null;
+  const sub = (t.subtitle && t.subtitle.runs) || [];
+  const nav = t.navigationEndpoint || {};
+  const base = {
+    title,
+    artist: artistsOf(sub),
+    year: yearOf(sub),
+    poster: bigThumb(t.thumbnailRenderer && t.thumbnailRenderer.musicThumbnailRenderer),
+  };
+  if (nav.watchEndpoint && nav.watchEndpoint.videoId) return Object.assign(base, { type: "track", id: nav.watchEndpoint.videoId });
+  if (nav.browseEndpoint && nav.browseEndpoint.browseId) {
+    const pt = pageTypeOf(nav);
+    if (pt !== T_ALBUM && pt !== T_PLAYLIST) return null;
+    return Object.assign(base, { type: "browse", id: nav.browseEndpoint.browseId });
   }
   return null;
 }
 
-// Six url/cat slot pairs (url1, cat1 ... url6, cat6): plain settings every Kino since apiVersion 1 understands, so the
-// plugin installs on Kino versions without list settings (the `sources` list of 1.3.0-1.4.1 needed apiVersion 4).
-// Kino hands a plugin only the settings its manifest declares, so an old stored list never reaches this code.
-const SLOTS = 6;
-function sources() {
-  const out = [];
-  for (let i = 1; i <= SLOTS; i++) {
-    const s = parseSource(kino.config.get("url" + i));
-    // `id` is the archive.org identifier; `key` is this address's slot; `category` is the optional row name the person gave it.
-    if (s) out.push({ ...s, key: "src" + i, category: String(kino.config.get("cat" + i) || "").trim().slice(0, 60) });
-  }
-  return out;
-}
+const ITEM_PARSERS = { musicResponsiveListItemRenderer: parseList, musicTwoRowItemRenderer: parseTwoRow };
 
-// What a details address lists: the videos of a collection, or, when nothing is filed under it, that one item.
-// Asked once per address for as long as the runtime lives.
-const scopes = new Map();
-async function scopeInfo(source) {
-  if (source.kind === "search") return { query: "(" + source.query + ") AND mediatype:(movies)", item: false };
-  if (!scopes.has(source.key)) {
-    const collection = "collection:(" + source.id + ") AND mediatype:(movies)";
-    const inside = await docs(collection, 1);
-    scopes.set(source.key, inside.length ? { query: collection, item: false } : { query: "identifier:(" + source.id + ") AND mediatype:(movies)", item: true });
-  }
-  return scopes.get(source.key);
-}
-
-async function scopeOf(source) {
-  return (await scopeInfo(source)).query;
-}
-
-// An item address with several videos shows one card per video (a single video stays the item's one card). The card's id is
-// `<identifier>~<n>` (an id cannot hold `|`); its ref is `<identifier>|<file>`, which `resolve` already plays.
-const MAX_VIDEO_CARDS = 100;
-async function videoCards(identifier, doc) {
-  const meta = await metadata(identifier);
-  const originals = videoOriginals(meta.files);
-  if (originals.length < 2) return [];
-  const base = toItem(doc || { identifier, title: first(meta.metadata && meta.metadata.title) }, "movie");
-  return originals.slice(0, MAX_VIDEO_CARDS).map((f, i) => ({
-    ...base,
-    id: identifier + "~" + (i + 1),
-    ref: identifier + "|" + f.name,
-    title: (base.title + " · " + episodeTitle(f)).slice(0, 200),
-  }));
-}
-
-// The cards of a list of archive.org docs: the ones that are an item address with several videos are expanded.
-async function cardsOf(found, sourceList) {
-  const itemIds = new Set();
-  for (const s of sourceList) if (s.kind === "details" && (await scopeInfo(s)).item) itemIds.add(s.id);
-  const out = [];
-  for (const d of found) {
-    let parts = [];
-    if (itemIds.has(d.identifier)) {
-      try {
-        parts = await videoCards(d.identifier, d);
-      } catch (e) {
-        log("videos of", d.identifier, "failed", e.message);
-      }
-    }
-    if (parts.length) out.push(...parts);
-    else out.push(toItem(d, "movie"));
-  }
-  return out;
-}
-
-async function titleOf(source) {
-  if (source.kind === "search") return ("Búsqueda: " + source.query).slice(0, 80);
-  try {
-    const data = await getJson(BASE + "/metadata/" + encodeURIComponent(source.id) + "/metadata");
-    const title = first(data && data.result && data.result.title);
-    if (title) return String(title).slice(0, 80);
-  } catch (e) {
-    log("title failed", source.id, e.message);
-  }
-  return source.id;
-}
-
-// The Home rows the addresses make: an address with a category joins the row of that category (same name, any capitals; the
-// row keeps the first spelling and is keyed by the first address's slot); an address without one is a row of its own.
-function ownRows() {
-  const out = [];
-  const byCategory = new Map();
-  for (const s of sources()) {
-    if (!s.category) {
-      out.push({ key: s.key, title: null, sources: [s] });
-      continue;
-    }
-    const name = s.category.toLowerCase();
-    if (!byCategory.has(name)) {
-      const row = { key: "cat" + s.key.slice(3), title: s.category, sources: [] };
-      byCategory.set(name, row);
-      out.push(row);
-    }
-    byCategory.get(name).sources.push(s);
-  }
-  return out;
-}
-
-// One archive.org query for a whole row (or for every address, in a search): its addresses' scopes, joined.
-async function queryOf(sourceList) {
-  const scopesOf = [];
-  for (const s of sourceList) scopesOf.push(await scopeOf(s));
-  return scopesOf.length === 1 ? scopesOf[0] : scopesOf.map((x) => "(" + x + ")").join(" OR ");
-}
-
-// Letters, digits and apostrophes inside words only: any other character can be query syntax to
-// advancedsearch (a stray "/", "-", "&" or "'" makes it answer {"error": ...}). So are the words
-// and/or/not in any case (a dangling one is an error too); dropping them never changes which
-// titles match. Word edges are spelled out with \p{} classes: \b is ASCII-only, so it would cut
-// the "or" out of "Señor".
-function cleanTitle(raw) {
-  return String(raw || "")
-    .replace(/[^\p{L}\p{M}\p{N}' ]+/gu, " ")
-    .replace(/(?<![\p{L}\p{M}\p{N}])'|'(?![\p{L}\p{M}\p{N}])/gu, " ")
-    .replace(/(?<![\p{L}\p{M}\p{N}])(and|or|not)(?![\p{L}\p{M}\p{N}])/giu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-// Lowercase letters and digits only, accents folded: how a title and an identifier are compared.
-function squash(text) {
-  const lower = String(text || "").toLowerCase();
-  return (typeof lower.normalize === "function" ? lower.normalize("NFKD") : lower).replace(/[^a-z0-9]/g, "");
-}
-
-// How many forms of the title are asked of archive.org: what was typed, the original title and at
-// most two of Kino's other titles. Each form is two requests (films and TV), all sent at once, so a
-// search stays far under the 60 requests and 15 seconds of one call.
-const MAX_FORMS = 4;
-
-// The forms of the title archive.org is asked, best first, one per distinct text: `q`, then
-// `originalTitle`, then `altTitles`. Each is cut to its head (kino.rank.shortQuery: up to the first
-// ":", "," ...), because archive.org's title search wants every word, and a subtitle Kino's title
-// has ("Nosferatu, el vampiro") is rarely in archive.org's.
-function titleForms(query) {
+// Todas las pistas/álbumes/listas de un trozo de respuesta, en el orden en que aparecen.
+function collectItems(root) {
   const out = [];
   const seen = new Set();
-  const given = [query.q, query.originalTitle].concat(Array.isArray(query.altTitles) ? query.altTitles : []);
-  for (const raw of given) {
-    if (out.length >= MAX_FORMS) break;
-    if (typeof raw !== "string" || !raw.trim()) continue;
-    const text = cleanTitle(kino.rank.shortQuery(raw));
-    const key = squash(text);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(text);
-  }
-  return out;
-}
-
-// With the year known, what is from that year (give or take one) goes first, then what has no
-// year, then the rest. Only an order: archive.org's years are often an upload's, and a remake is
-// still a real answer. Stable, so archive.org's own order (most downloaded) stays among equals.
-function byYear(items, year) {
-  const wanted = Number(year) || 0;
-  if (!wanted) return items;
-  const place = (item) => {
-    const y = parseInt(item.year, 10);
-    if (!y) return 1;
-    return Math.abs(y - wanted) <= 1 ? 0 : 2;
-  };
-  return items.map((item, i) => ({ item, i, p: place(item) })).sort((a, b) => a.p - b.p || a.i - b.i).map((x) => x.item);
-}
-
-export async function search(query) {
-  const forms = titleForms(query);
-  if (!forms.length) return [];
-  const text = forms[0];
-  const titleQuery = (form) => "title:(" + form + ")";
-  const anyTitle = forms.length === 1 ? titleQuery(text) : "(" + forms.map(titleQuery).join(" OR ") + ")";
-  // Both collections are always searched: `type` is only a hint. Kino sends it from TMDB's movie/tv
-  // split, which does not line up with archive.org's (public-domain films and classic TV are mixed,
-  // and a title can be in both), so filtering by it lost real matches. It only decides which group
-  // comes first.
-  const groups = [
-    { kind: "movie", where: FILMS },
-    { kind: "series", where: TV },
-  ];
-  if (query.type === "series") groups.reverse();
-  const out = [];
-  const seen = new Set();
-  // What is inside the person's own addresses comes first, as archive.org lists it: the person chose
-  // those addresses, so nothing there is ranked away.
-  const mine = sources();
-  if (mine.length) {
-    try {
-      const hits = (await docs(anyTitle + " AND (" + (await queryOf(mine)) + ")", 25)).filter((d) => !seen.has(d.identifier));
-      for (const card of await cardsOf(hits, mine)) {
-        if (seen.has(card.id)) continue;
-        seen.add(card.id);
-        out.push(card);
+  const stack = [root];
+  while (stack.length) {
+    const n = stack.pop();
+    if (!n || typeof n !== "object") continue;
+    if (n.__yt) {
+      const x = ITEM_PARSERS[n.__yt](n.v);
+      if (x && !seen.has(x.type + x.id)) {
+        seen.add(x.type + x.id);
+        out.push(x);
       }
-      // An item address with several videos is also searched by its videos' own titles.
-      const wordLists = forms.map((f) => f.toLowerCase().split(" "));
-      for (const s of mine) {
-        if (s.kind !== "details" || !(await scopeInfo(s)).item) continue;
-        for (const card of await videoCards(s.id)) {
-          const title = card.title.toLowerCase();
-          if (seen.has(card.id) || !wordLists.some((words) => words.every((w) => title.includes(w)))) continue;
-          seen.add(card.id);
-          out.push(card);
-        }
-      }
-    } catch (e) {
-      log("search in the person's addresses failed", e.message);
-    }
-  }
-  // Every form in both collections, all at once. A form archive.org fails on is left out; only when
-  // every one fails does the search fail.
-  const asks = [];
-  for (const group of groups) {
-    for (const form of forms) {
-      asks.push(
-        (async () => {
-          try {
-            return { group, found: await docs(titleQuery(form) + " AND " + group.where, 25) };
-          } catch (e) {
-            return { group, error: e };
-          }
-        })()
-      );
-    }
-  }
-  const answers = await Promise.all(asks);
-  if (answers.every((a) => a.error)) throw answers[0].error;
-  const found = [];
-  for (const a of answers) {
-    if (a.error) {
-      log("search failed for one title", a.error.message);
       continue;
     }
-    for (const d of a.found) {
-      // An item can be in both collections, or be found by several forms: it is listed once, as the
-      // kind of the group that came first.
-      if (seen.has(d.identifier)) continue;
-      seen.add(d.identifier);
-      found.push(toItem(d, a.group.kind));
+    if (Array.isArray(n)) {
+      for (let i = n.length - 1; i >= 0; i--) stack.push(n[i]);
+      continue;
     }
-  }
-  // Ranked against every title Kino knows for the work and every form asked: what shares most of
-  // their words first, a near-miss dropped. An item whose identifier is one of those titles exactly
-  // ("nosferatu" for "Nosferatu") always stays.
-  const titles = [query.q, query.originalTitle]
-    .concat(Array.isArray(query.altTitles) ? query.altTitles : [], forms)
-    .filter((t) => typeof t === "string" && t.trim());
-  const exact = new Set(titles.map(squash).filter(Boolean));
-  const relevant = new Set(kino.rank.filterRelevant(found, titles));
-  const kept = found.filter((item) => relevant.has(item) || exact.has(squash(item.id)));
-  return out.concat(kino.rank.sortBySimilarity(byYear(kept, query.year), titles));
-}
-
-// Home rows; each one's id is also its "Ver más" ref (the browse capability).
-const ROWS = [
-  { id: "films", title: "Películas de dominio público", query: FILMS, kind: "movie" },
-  { id: "tv", title: "Televisión clásica", query: TV, kind: "series" },
-  { id: "cartoons", title: "Animación clásica", query: CARTOONS, kind: "movie" },
-];
-const ROW_SIZE = 30;
-const PAGE_SIZE = 50;
-
-export async function home() {
-  const out = [];
-  // The person's own addresses, newest first, before the plugin's own rows.
-  for (const row of ownRows()) {
-    try {
-      const found = await docs(await queryOf(row.sources), ROW_SIZE, 1, NEWEST);
-      if (found.length) out.push({ id: row.key, title: row.title || (await titleOf(row.sources[0])), ref: row.key, items: await cardsOf(found, row.sources) });
-    } catch (e) {
-      log("home row failed", row.key, e.message);
-    }
-  }
-  for (const row of ROWS) {
-    try {
-      const found = await docs(row.query, ROW_SIZE);
-      out.push({ id: row.id, title: row.title, ref: row.id, items: found.map((d) => toItem(d, row.kind)) });
-    } catch (e) {
-      log("home row failed", row.id, e.message);
+    const keys = Object.keys(n);
+    for (let i = keys.length - 1; i >= 0; i--) {
+      const v = n[keys[i]];
+      stack.push(ITEM_PARSERS[keys[i]] ? { __yt: keys[i], v } : v);
     }
   }
   return out;
 }
 
-// "Ver más" on a Home row: the same query, a page at a time. The cursor is the next page number.
-export async function browse(ref, cursor) {
-  await null; // the checks below may throw: never before the first await
-  const own = ownRows().find((r) => r.key === ref);
-  const row = own || ROWS.find((r) => r.id === ref);
-  if (!row) throw kino.error("not_found", "esa fila ya no existe");
-  const page = cursor ? Number(cursor) : 1;
-  if (!Number.isInteger(page) || page < 1 || page > 100) throw kino.error("not_found", "página inválida");
-  const found = own ? await docs(await queryOf(own.sources), PAGE_SIZE, page, NEWEST) : await docs(row.query, PAGE_SIZE, page);
-  return { items: own ? await cardsOf(found, own.sources) : found.map((d) => toItem(d, row.kind)), next: found.length === PAGE_SIZE ? String(page + 1) : undefined };
-}
-
-async function metadata(id) {
-  const data = await getJson(BASE + "/metadata/" + encodeURIComponent(id));
-  if (!data || !Array.isArray(data.files)) throw new Error("archive.org no tiene ese item");
+// La lista principal de una página (así no se cuelan las "sugerencias" del final de una lista).
+function shelfOf(data) {
+  for (const k of ["musicPlaylistShelfRenderer", "musicShelfRenderer", "musicPlaylistShelfContinuation", "musicShelfContinuation", "appendContinuationItemsAction"]) {
+    const found = findAll(data, k)[0];
+    if (found) return found;
+  }
   return data;
 }
 
-// "Season 2" after "Season 10" is wrong; compare digit runs as numbers.
-function natural(a, b) {
-  const x = a.split(/(\d+)/);
-  const y = b.split(/(\d+)/);
-  for (let i = 0; i < Math.min(x.length, y.length); i++) {
-    if (x[i] === y[i]) continue;
-    if (i % 2 === 1) return Number(x[i]) - Number(y[i]);
-    return x[i] < y[i] ? -1 : 1;
+function nextToken(root, fallback) {
+  for (const scope of [root, fallback]) {
+    if (!scope) continue;
+    const a = findAll(scope, "nextContinuationData")[0];
+    if (a && a.continuation) return a.continuation;
+    const b = findAll(scope, "continuationCommand")[0];
+    if (b && b.token) return b.token;
   }
-  return x.length - y.length;
+  return null;
 }
 
-// A video is an original file something playable exists for: itself (mp4/m4v/webm) or a derivative
-// made from it (its `original` field). The extension of the original tells nothing: real items
-// hold .avi, .mpg, .mkv and .divx originals next to their derived mp4.
-function videoOriginals(files) {
-  const playable = new Set();
-  for (const f of files) {
-    if (!PLAYABLE_EXT.test(f.name)) continue;
-    const from = f.source === "original" ? f.name : f.original;
-    if (from) playable.add(from);
+function headerOf(data) {
+  const h = findAll(data, "musicResponsiveHeaderRenderer")[0] || findAll(data, "musicDetailHeaderRenderer")[0] || findAll(data, "musicImmersiveHeaderRenderer")[0];
+  if (!h) return {};
+  return { title: txt(h.title).trim() || undefined, poster: bigThumb(h.thumbnail && (h.thumbnail.musicThumbnailRenderer || h.thumbnail.croppedSquareThumbnailRenderer)) };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Items y refs
+//   ref de una pista:   "t:<videoId>|<título>"   (el título solo sirve para rotular el capítulo)
+//   ref de álbum/lista: "b:<browseId>"
+// ---------------------------------------------------------------------------------------------
+
+function trackRef(id, title) {
+  return "t:" + id + (title ? "|" + encodeURIComponent(String(title).slice(0, 80)) : "");
+}
+
+function parseRef(ref) {
+  const m = /^([tb]):([^|]+)(?:\|(.*))?$/.exec(String(ref || ""));
+  if (!m) return null;
+  let title = "";
+  try {
+    title = decodeURIComponent(m[3] || "");
+  } catch (e) {
+    title = "";
   }
-  return files
-    .filter((f) => f.source === "original" && playable.has(f.name))
-    .sort((a, b) => natural(a.name, b.name));
+  return { type: m[1], id: m[2], title };
 }
 
-function stem(name) {
-  return name.replace(/\.[^./]+$/, "");
+function toItem(x) {
+  const it = { title: x.title.slice(0, 200), kind: "music" };
+  if (x.type === "track") {
+    it.id = "t." + x.id;
+    it.ref = trackRef(x.id, x.title);
+  } else {
+    it.id = "b." + x.id;
+    it.ref = "b:" + x.id;
+  }
+  if (x.artist) it.artist = x.artist.slice(0, 200);
+  if (x.poster) it.poster = x.poster;
+  if (x.year) it.year = x.year;
+  if (x.minutes) it.runtimeMinutes = x.minutes;
+  return it;
 }
 
-function rank(f) {
-  const i = FORMAT_RANK.indexOf(String(f.format || "").toLowerCase());
-  return i === -1 ? FORMAT_RANK.length : i;
+const validId = (x) => /^[A-Za-z0-9._~-]{1,120}$/.test(x.id);
+
+// ---------------------------------------------------------------------------------------------
+// Capacidades
+// ---------------------------------------------------------------------------------------------
+
+export async function search(query) {
+  const q = String((query && query.q) || "").trim();
+  if (!q) return [];
+  const data = await yt("search", { query: q });
+  return collectItems(data).filter(validId).slice(0, 100).map(toItem);
 }
 
-function bestPlayable(files, original) {
-  const family = files.filter((f) => (f.name === original.name || f.original === original.name) && PLAYABLE_EXT.test(f.name));
-  family.sort((a, b) => rank(a) - rank(b));
-  return family[0] || null;
+async function libraryRows() {
+  const rows = [];
+  try {
+    const liked = shelfOf(await yt("browse", { browseId: "VLLM" }));
+    const items = collectItems(liked).filter((x) => x.type === "track" && validId(x)).slice(0, 60).map(toItem);
+    if (items.length) rows.push({ id: "yt-liked", title: "Canciones que te gustan", items, ref: "b:VLLM", genre: "musica" });
+  } catch (e) {
+    kino.log("library liked:", e.code || "error");
+  }
+  try {
+    const lists = collectItems(await yt("browse", { browseId: "FEmusic_liked_playlists" }))
+      .filter((x) => x.type === "browse" && x.id !== "VLLM" && validId(x))
+      .slice(0, 60)
+      .map(toItem);
+    if (lists.length) rows.push({ id: "yt-lists", title: "Tus listas", items: lists, ref: "b:FEmusic_liked_playlists", genre: "musica" });
+  } catch (e) {
+    kino.log("library lists:", e.code || "error");
+  }
+  return rows;
 }
 
-function downloadUrl(id, name) {
-  return BASE + "/download/" + encodeURIComponent(id) + "/" + name.split("/").map(encodeURIComponent).join("/");
+export async function home() {
+  const rows = savedCookie() ? await libraryRows() : [];
+  const data = await yt("browse", { browseId: "FEmusic_home" });
+  for (const shelf of findAll(data, "musicCarouselShelfRenderer")) {
+    if (rows.length >= 20) break;
+    const header = shelf.header && shelf.header.musicCarouselShelfBasicHeaderRenderer;
+    const title = txt(header && header.title).trim();
+    if (!title) continue;
+    const items = collectItems(shelf.contents).filter(validId).slice(0, 60).map(toItem);
+    if (!items.length) continue;
+    const row = { id: "yt" + rows.length, title: title.slice(0, 200), items, genre: "musica" };
+    const more =
+      header.moreContentButton &&
+      header.moreContentButton.buttonRenderer &&
+      header.moreContentButton.buttonRenderer.navigationEndpoint &&
+      header.moreContentButton.buttonRenderer.navigationEndpoint.browseEndpoint;
+    if (more && more.browseId) row.ref = "b:" + more.browseId;
+    rows.push(row);
+  }
+  return rows;
 }
 
-function subtitlesFor(id, files, original) {
-  const base = stem(original.name) + ".";
-  return files
-    .filter((f) => SUBTITLE_EXT.test(f.name) && f.name.startsWith(base))
-    .map((f) => ({
-      lang: /[._](es|spa|spanish)[._]/i.test(f.name) ? "es" : "en",
-      url: downloadUrl(id, f.name),
-      format: /\.srt$/i.test(f.name) ? "srt" : "vtt",
-    }));
-}
-
-function numbering(originals) {
-  const found = originals.map((f) => /S(\d{1,3})E(\d{1,4})/i.exec(f.name));
-  if (found.every((m) => m)) return found.map((m) => ({ season: Number(m[1]), number: Number(m[2]) }));
-  return originals.map((_, i) => ({ season: 1, number: i + 1 }));
-}
-
-function episodeTitle(f) {
-  if (f.title) return String(f.title);
-  const name = stem(f.name.split("/").pop());
-  const m = /S\d{1,3}E\d{1,4}\s*-\s*(.+)$/i.exec(name);
-  return m ? m[1] : name;
+export async function browse(ref, cursor) {
+  const p = parseRef(ref);
+  if (!p || p.type !== "b") return { items: [] };
+  const data = cursor ? await yt("browse", { continuation: cursor }) : await yt("browse", { browseId: p.id });
+  const shelf = shelfOf(data);
+  const items = collectItems(shelf).filter(validId).slice(0, 100).map(toItem);
+  const next = nextToken(shelf, data);
+  return next && next.length <= 2048 ? { items, next } : { items };
 }
 
 export async function episodes(ref) {
-  const meta = await metadata(ref);
-  const originals = videoOriginals(meta.files);
-  const numbers = numbering(originals);
+  const p = parseRef(ref);
+  if (!p) throw kino.error("not_found", "ref no válido");
+  // Una pista suelta es un álbum de una sola pista.
+  if (p.type === "t") return { episodes: [{ season: 1, number: 1, ref: String(ref), title: p.title || undefined }] };
+
+  let data = await yt("browse", { browseId: p.id });
+  const head = headerOf(data);
+  const tracks = [];
+  const seen = new Set();
+  for (let page = 0; page < 6; page++) {
+    const shelf = shelfOf(data);
+    for (const x of collectItems(shelf)) {
+      if (x.type === "track" && validId(x) && !seen.has(x.id)) {
+        seen.add(x.id);
+        tracks.push(x);
+      }
+    }
+    const next = nextToken(shelf, data);
+    if (!next || tracks.length >= 500 || page === 5) break;
+    data = await yt("browse", { continuation: next });
+  }
+  if (!tracks.length) throw kino.error("not_found", "sin pistas", { userMessage: "No se encontraron canciones en esta lista." });
   return {
-    series: {
-      title: String(first(meta.metadata && meta.metadata.title) || ref),
-      poster: BASE + "/services/img/" + encodeURIComponent(ref),
-    },
-    episodes: originals.map((f, i) => ({
-      season: numbers[i].season,
-      number: numbers[i].number,
-      ref: ref + "|" + f.name,
-      title: episodeTitle(f),
+    series: { title: head.title, poster: head.poster },
+    episodes: tracks.slice(0, 5000).map((x, i) => ({
+      season: 1,
+      number: i + 1,
+      ref: trackRef(x.id, x.title),
+      title: x.title.slice(0, 200),
+      still: x.poster || head.poster,
+      runtimeMinutes: x.minutes,
     })),
   };
 }
 
+// ---------------------------------------------------------------------------------------------
+// Reproducción
+// ---------------------------------------------------------------------------------------------
+
+const mimeOf = (f) => String(f.mimeType || "").split(";")[0].trim();
+
+function describe(f) {
+  const codec = /mp4a/.test(f.mimeType || "") ? "AAC" : /opus/.test(f.mimeType || "") ? "Opus" : "Audio";
+  return (codec + " " + Math.round((f.bitrate || 0) / 1000) + " kbps").slice(0, 48);
+}
+
+function orderFormats(formats, pref) {
+  const audio = (formats || []).filter(
+    (f) => f && f.url && /^audio\//.test(f.mimeType || "") && !f.isDrc && (!f.audioTrack || f.audioTrack.audioIsDefault),
+  );
+  const byRate = (a, b) => (b.bitrate || 0) - (a.bitrate || 0);
+  const aac = audio.filter((f) => /^audio\/mp4/.test(f.mimeType)).sort(byRate);
+  const opus = audio.filter((f) => !/^audio\/mp4/.test(f.mimeType)).sort(byRate);
+  return pref === "opus" ? opus.concat(aac) : aac.concat(opus);
+}
+
+async function playerFor(videoId) {
+  const { hl, gl } = locale();
+  let lastStatus = null;
+  for (const c of CLIENTS) {
+    let r;
+    try {
+      r = await kino.fetch(PLAYER_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": c.ua,
+          "X-YouTube-Client-Name": c.id,
+          "X-YouTube-Client-Version": c.client.clientVersion,
+          Origin: "https://www.youtube.com",
+        },
+        body: {
+          json: {
+            videoId,
+            context: { client: Object.assign({}, c.client, { hl, gl }) },
+            contentCheckOk: true,
+            racyCheckOk: true,
+          },
+        },
+        cookies: false,
+        timeoutMs: 15000,
+      });
+    } catch (e) {
+      kino.log("player", c.client.clientName, e.code || "error");
+      if (e.code === "host_not_allowed") throw e;
+      continue;
+    }
+    if (!r.ok) {
+      kino.log("player", c.client.clientName, "http", r.status);
+      continue;
+    }
+    const d = r.json();
+    const status = d.playabilityStatus || {};
+    if (status.status !== "OK") {
+      lastStatus = status;
+      kino.log("player", c.client.clientName, String(status.status));
+      continue;
+    }
+    const sd = d.streamingData || {};
+    const ordered = orderFormats(sd.adaptiveFormats, kino.config.get("quality"));
+    if (!ordered.length) {
+      kino.log("player", c.client.clientName, "sin formatos de audio con URL directa");
+      continue;
+    }
+    return { client: c, sd, ordered };
+  }
+  const reason = String((lastStatus && lastStatus.reason) || "");
+  if (/country|region|pa[ií]s|regi[oó]n/i.test(reason)) throw kino.error("geo_blocked", reason.slice(0, 150));
+  if (lastStatus && lastStatus.status && lastStatus.status !== "LOGIN_REQUIRED" && lastStatus.status !== "ERROR") {
+    throw kino.error("not_found", String(lastStatus.status), { userMessage: "Esta canción no se puede reproducir." });
+  }
+  throw kino.error("unavailable", "player sin audio", {
+    userMessage: "YouTube no entregó esta canción por ahora. Prueba de nuevo en unos minutos.",
+  });
+}
+
 export async function resolve(ref) {
-  const cut = ref.indexOf("|");
-  const id = cut === -1 ? ref : ref.slice(0, cut);
-  const wanted = cut === -1 ? null : ref.slice(cut + 1);
-  const meta = await metadata(id);
-  const originals = videoOriginals(meta.files);
-  const original = wanted ? originals.find((f) => f.name === wanted) : originals[0];
-  if (!original) throw new Error("este item no tiene video");
-  const file = bestPlayable(meta.files, original);
-  if (!file) throw new Error("no hay una versión que se pueda reproducir (mp4 o webm)");
-  const seconds = Number(file.length || original.length || 0);
-  return {
-    url: downloadUrl(id, file.name),
-    mime: /\.webm$/i.test(file.name) ? "video/webm" : "video/mp4",
-    subtitles: subtitlesFor(id, meta.files, original),
-    durationMs: seconds > 0 ? Math.round(seconds * 1000) : undefined,
-  };
+  const p = parseRef(ref);
+  if (!p || p.type !== "t" || !/^[A-Za-z0-9_-]{11}$/.test(p.id)) throw kino.error("not_found", "ref de pista no válido");
+  const { client, sd, ordered } = await playerFor(p.id);
+  const headers = { "User-Agent": client.ua };
+  const first = ordered[0];
+  const stream = { url: first.url, mime: mimeOf(first), headers, label: describe(first) };
+  const ms = Number(first.approxDurationMs);
+  if (Number.isFinite(ms) && ms > 0) stream.durationMs = Math.round(ms);
+  const exp = Number(sd.expiresInSeconds);
+  if (Number.isFinite(exp) && exp > 0) stream.expiresInSeconds = Math.max(30, Math.min(86400, Math.round(exp) - 300));
+  const others = ordered.slice(1, 3).map((f) => ({ url: f.url, mime: mimeOf(f), headers, label: describe(f) }));
+  if (others.length) stream.alternatives = others;
+  return stream;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Formulario de ajustes: estado de la sesión, cerrar sesión y validar al guardar
+// ---------------------------------------------------------------------------------------------
+
+async function accountName(cookie) {
+  let data;
+  try {
+    data = await yt("account/account_menu", {}, { cookie });
+  } catch (e) {
+    if (e.code === "auth_required") return null;
+    throw e;
+  }
+  const t = findAll(data, "accountName")[0];
+  return t ? txt(t).trim().slice(0, 60) || null : null;
+}
+
+export async function settingsStatus() {
+  const cookie = savedCookie();
+  if (!cookie) return { linked: "Sin sesión: usas YouTube Music como invitado" };
+  try {
+    const name = await accountName(cookie);
+    return { linked: name ? "Sesión iniciada como " + name : "Google no reconoce esta sesión: copia las cookies otra vez" };
+  } catch (e) {
+    return { linked: "No se pudo comprobar la sesión ahora" };
+  }
+}
+
+export async function action(key) {
+  await null;
+  if (key !== "logout") return null;
+  return { message: "Sesión cerrada", clearSettings: COOKIE_KEYS.slice() };
+}
+
+export async function validateSettings(values) {
+  await null;
+  const cookie = joinCookie(COOKIE_KEYS.map((k) => values[k]));
+  if (!cookie) return null; // sin cookies: invitado
+  const jar = parseCookie(cookie);
+  if (!jar.SAPISID && !jar["__Secure-3PAPISID"]) {
+    return { cookieA: "Falta la cookie SAPISID (o __Secure-3PAPISID). Revisa el README." };
+  }
+  const name = await accountName(cookie); // un fallo de red lanza: la persona puede "Guardar sin comprobar"
+  if (!name) return { cookieA: "Google no reconoce esta sesión. Copia las cookies de nuevo." };
+  return null;
 }
