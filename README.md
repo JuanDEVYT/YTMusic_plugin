@@ -2,6 +2,13 @@
 
 Plugin de música para Kino (apiVersion 8, Kino 0.9.54 o superior): busca, explora una sección propia, abre álbumes y listas, y reproduce el audio de YouTube Music. Con tu sesión, también ves tus **Me gusta** y **tus listas**.
 
+## Novedades de la 0.4.2
+
+- Cuando YouTube dice que una pista "no está disponible", el error sale al instante con el motivo real y ya no se intenta el navegador oculto (que acababa en un falso "verifica que eres una persona").
+- El navegador oculto solo se usa como respaldo en otros fallos; si también falla, se muestra el error original.
+- Los registros incluyen `reason=` del `playabilityStatus`.
+- Caché del stream resuelto hasta que caduque.
+
 ## Novedades de la 0.4.0
 
 - **Tema rojo de YouTube Music** (`theme` en el manifiesto): fondo casi negro, superficies grises y acento rojo-carmesí `#FF0050`. Kino rechaza acentos demasiado parecidos a su propio rojo (`#E50914`, distancia mínima 25 en CIE76), por eso el acento es un rojo algo más carmesí que el `#FF0000` oficial.

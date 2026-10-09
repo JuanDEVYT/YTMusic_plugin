@@ -10,7 +10,7 @@ const API = "https://music.youtube.com/youtubei/v1/";
 const ORIGIN = "https://music.youtube.com";
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
-const VERSION = "0.4.1";
+const VERSION = "0.4.2";
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC"];
 
 // Clientes para /player, en orden de preferencia. VISIONOS entrega URLs directas de audio que googlevideo
@@ -724,7 +724,10 @@ async function playerFor(videoId) {
   const reason = String((lastStatus && lastStatus.reason) || "");
   if (/country|region|pa[ií]s|regi[oó]n/i.test(reason)) throw kino.error("geo_blocked", reason.slice(0, 150));
   if (lastStatus && lastStatus.status && lastStatus.status !== "LOGIN_REQUIRED" && lastStatus.status !== "ERROR") {
-    throw kino.error("not_found", String(lastStatus.status), { userMessage: "Esta canción no se puede reproducir." });
+    const why = String(lastStatus.reason || "").slice(0, 120);
+    throw kino.error("not_found", String(lastStatus.status) + (why ? ": " + why : ""), {
+      userMessage: "Esta canción no se puede reproducir" + (why ? " (" + why.replace(/\.$/, "") + ")." : "."),
+    });
   }
   throw kino.error("unavailable", "player sin audio", {
     userMessage: "YouTube no entregó esta canción por ahora. Prueba de nuevo en unos minutos.",
@@ -910,10 +913,17 @@ export async function resolve(ref) {
   try {
     stream = await resolveDirect(p.id);
   } catch (e) {
-    // Ningún cliente entregó audio: se prueba el reproductor real en el navegador oculto, salvo bloqueo por país.
-    if (e.code !== "not_found" || !canBrowse) throw e;
+    // Ningún cliente entregó audio. Si YouTube dice que la pista no existe / no está disponible, el navegador
+    // oculto tampoco la va a conseguir: se falla en el acto con el motivo real. Solo se prueba el navegador
+    // en los demás casos, y si él también falla se devuelve el error ORIGINAL (no el del bot-check).
+    if (e.code !== "not_found" || !canBrowse || /no est[aá] disponible|not available|unavailable|private|privad|eliminad|removed|terminated/i.test(String(e.message || ""))) throw e;
     kino.log("resolveDirect not_found -> navegador oculto");
-    stream = await resolveViaBrowser(p.id);
+    try {
+      stream = await resolveViaBrowser(p.id);
+    } catch (e2) {
+      kino.log("navegador oculto tampoco:", e2.code || "error");
+      throw e;
+    }
   }
   try {
     const ttl = Number(stream.expiresInSeconds) > 60 ? (Number(stream.expiresInSeconds) - 30) * 1000 : 0;
