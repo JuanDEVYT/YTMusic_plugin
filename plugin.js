@@ -10,8 +10,9 @@ const API = "https://music.youtube.com/youtubei/v1/";
 const ORIGIN = "https://music.youtube.com";
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
-const VERSION = "0.4.2";
-const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC"];
+const VERSION = "0.5.0";
+// Cada ajuste "password" admite 500 caracteres como máximo (límite de Kino): por eso 4 partes = 2000.
+const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC", "cookieD"];
 
 // Clientes para /player, en orden de preferencia. VISIONOS entrega URLs directas de audio que googlevideo
 // sirve completas y por rangos abiertos sin PO token (el que usa yt-dlp); IOS y ANDROID_VR piden ese token para
@@ -64,7 +65,11 @@ const T_PLAYLIST = "MUSIC_PAGE_TYPE_PLAYLIST";
 const SEARCH_SONGS = "EgWKAQIIAWoMEA4QChADEAQQCRAF";
 const SEARCH_ALBUMS = "EgWKAQIYAWoMEA4QChADEAQQCRAF";
 const SEARCH_LISTS = "EgeKAQQoADgBagwQDhAKEAMQBBAJEAU%3D";
-const T_ARTISTS = ["MUSIC_PAGE_TYPE_ARTIST", "MUSIC_PAGE_TYPE_USER_CHANNEL"];
+const SEARCH_ARTISTS = "EgWKAQIgAWoMEA4QChADEAQQCRAF";
+const T_ARTIST = "MUSIC_PAGE_TYPE_ARTIST";
+const ARTIST_TYPES = [T_ARTIST, "MUSIC_PAGE_TYPE_LIBRARY_ARTIST"];
+const T_ARTISTS = [T_ARTIST, "MUSIC_PAGE_TYPE_USER_CHANNEL"];
+const GREY_OUT = "MUSIC_ITEM_RENDERER_DISPLAY_POLICY_GREY_OUT";
 
 // ---------------------------------------------------------------------------------------------
 // Sesión: las cookies de la persona (ajuste password, cifrado en el aparato)
@@ -125,40 +130,67 @@ function webClientVersion() {
   return "1." + d.getUTCFullYear() + p(d.getUTCMonth() + 1) + p(d.getUTCDate()) + ".01.00";
 }
 
+// Continuaciones (siguiente página): el token va en el cuerpo y también en la dirección, como hace la web.
+function contParams(token) {
+  const t = String(token);
+  const e = /^[A-Za-z0-9%_.~=-]+$/.test(t) ? t : encodeURIComponent(t);
+  return "&ctoken=" + e + "&continuation=" + e;
+}
+
+const authErr = (endpoint, status) =>
+  kino.error("auth_required", "youtubei " + endpoint + " " + status, {
+    userMessage: "La sesión de YouTube Music venció. Vuelve a copiar tus cookies en Ajustes.",
+  });
+
+// opts: { cookie, timeoutMs (15 s por defecto), params (texto extra para la dirección) }
 async function yt(endpoint, body, opts) {
   await null;
-  const cookie = opts && opts.cookie !== undefined ? opts.cookie : savedCookie();
+  const o = opts || {};
+  const cookie = o.cookie !== undefined ? o.cookie : savedCookie();
   const { hl, gl } = locale();
-  const headers = Object.assign(
-    {
-      "Content-Type": "application/json",
-      "User-Agent": WEB_UA,
-      Accept: "*/*",
-      Origin: ORIGIN,
-      Referer: ORIGIN + "/",
-      "X-Origin": ORIGIN,
-    },
-    authHeaders(cookie),
-  );
   const payload = Object.assign(
     { context: { client: { clientName: "WEB_REMIX", clientVersion: webClientVersion(), hl, gl }, user: {} } },
     body || {},
   );
-  const r = await kino.fetch(API + endpoint + "?prettyPrint=false", {
-    method: "POST",
-    headers,
-    body: { json: payload },
-    cookies: !cookie, // con sesión mandamos nuestra cabecera Cookie tal cual; sin sesión, el tarro normal
-    timeoutMs: 20000,
-  });
-  if (r.status === 401 || (cookie && r.status === 403)) {
-    throw kino.error("auth_required", "youtubei " + endpoint + " " + r.status, {
-      userMessage: "La sesión de YouTube Music venció. Vuelve a copiar tus cookies en Ajustes.",
+  const call = (ck) =>
+    kino.fetch(API + endpoint + "?prettyPrint=false" + (o.params || ""), {
+      method: "POST",
+      headers: Object.assign(
+        {
+          "Content-Type": "application/json",
+          "User-Agent": WEB_UA,
+          Accept: "*/*",
+          Origin: ORIGIN,
+          Referer: ORIGIN + "/",
+          "X-Origin": ORIGIN,
+        },
+        authHeaders(ck),
+      ),
+      body: { json: payload },
+      cookies: !ck, // con sesión mandamos nuestra cabecera Cookie tal cual; sin sesión, el tarro normal
+      timeoutMs: o.timeoutMs || 15000,
+    });
+  const r = await call(cookie);
+  if (r.status === 401) throw authErr(endpoint, r.status);
+  if (cookie && r.status === 403) {
+    // Un 403 con sesión puede ser la sesión o puede ser YouTube. La misma petición como invitado lo aclara.
+    let guestOk = false;
+    try {
+      guestOk = (await call("")).ok;
+    } catch (e) {}
+    if (guestOk) throw authErr(endpoint, r.status);
+    throw kino.error("unavailable", "youtubei " + endpoint + " 403", {
+      userMessage: "YouTube rechazó la petición por ahora. Prueba de nuevo en unos minutos.",
     });
   }
   if (r.status === 429) throw kino.error("rate_limited", "youtubei " + endpoint + " 429");
   if (!r.ok) throw kino.error("unavailable", "youtubei " + endpoint + " " + r.status);
   return r.json();
+}
+
+// La página siguiente de algo que ya se pidió (token de continuación).
+function ytCont(endpoint, token, opts) {
+  return yt(endpoint, { continuation: token }, Object.assign({}, opts, { params: contParams(token) }));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -218,8 +250,28 @@ function yearOf(runs) {
   return y ? String(y.text).trim() : undefined;
 }
 
+const explicitOf = (badges) =>
+  (badges || []).some((b) => {
+    const i = b && b.musicInlineBadgeRenderer && b.musicInlineBadgeRenderer.icon;
+    return !!i && i.iconType === "MUSIC_EXPLICIT_BADGE";
+  });
+
+// "Álbum", "Sencillo" o "EP": lo dice la primera palabra del subtítulo (si no, el rótulo por defecto).
+function kindLabel(sub, fallback) {
+  const f = String((sub[0] && sub[0].text) || "").trim();
+  if (!/^(sencillo|single|ep|[áa]lbum)$/i.test(f)) return fallback;
+  return f.toLowerCase() === "ep" ? "EP" : f.charAt(0).toUpperCase() + f.slice(1).toLowerCase();
+}
+
+// Un clip o video musical (no la versión de estudio): se rotula "Video".
+function isVideoWatch(we) {
+  const c = we && we.watchEndpointMusicSupportedConfigs && we.watchEndpointMusicSupportedConfigs.watchEndpointMusicConfig;
+  return !!c && /OMV|UGC|OFFICIAL_SOURCE/.test(String(c.musicVideoType || ""));
+}
+
 // Una fila de lista (resultados de búsqueda, pistas de un álbum o de una lista).
 function parseList(r) {
+  if (r.musicItemRendererDisplayPolicy === GREY_OUT) return null; // no disponible: sale gris y no suena
   const cols = (r.flexColumns || []).map(
     (c) => c.musicResponsiveListItemFlexColumnRenderer && c.musicResponsiveListItemFlexColumnRenderer.text,
   );
@@ -228,34 +280,41 @@ function parseList(r) {
   const sub = (cols[1] && cols[1].runs) || [];
   const fixed = r.fixedColumns && r.fixedColumns[0] && r.fixedColumns[0].musicResponsiveListItemFixedColumnRenderer;
   const secs = seconds(txt(fixed && fixed.text)) || seconds(sub.length ? sub[sub.length - 1].text : "");
+  const albumRun = sub.find((x) => pageTypeOf(x.navigationEndpoint) === T_ALBUM);
   const base = {
     title,
     artist: artistsOf(sub),
     year: yearOf(sub),
     poster: bigThumb(r.thumbnail && r.thumbnail.musicThumbnailRenderer),
     minutes: secs ? Math.max(1, Math.round(secs / 60)) : undefined,
+    explicit: explicitOf(r.badges),
+    album: albumRun ? String(albumRun.text).trim() : undefined,
   };
   const browse = r.navigationEndpoint && r.navigationEndpoint.browseEndpoint;
   if (browse && browse.browseId) {
     const pt = pageTypeOf(r.navigationEndpoint);
-    if (pt !== T_ALBUM && pt !== T_PLAYLIST) return null; // artistas, podcasts…: fuera de esta versión
-    return Object.assign(base, { type: "browse", id: browse.browseId, label: pt === T_ALBUM ? "Álbum" : "Lista" });
+    if (ARTIST_TYPES.includes(pt)) {
+      return Object.assign(base, { type: "artist", id: browse.browseId, artist: "", year: undefined, minutes: undefined, label: "Artista" });
+    }
+    if (pt !== T_ALBUM && pt !== T_PLAYLIST) return null; // podcasts, perfiles…: fuera de esta versión
+    return Object.assign(base, { type: "browse", id: browse.browseId, pt, label: pt === T_ALBUM ? kindLabel(sub, "Álbum") : "Lista" });
   }
   const overlay =
     r.overlay &&
     r.overlay.musicItemThumbnailOverlayRenderer &&
     r.overlay.musicItemThumbnailOverlayRenderer.content &&
     r.overlay.musicItemThumbnailOverlayRenderer.content.musicPlayButtonRenderer;
+  const we = overlay && overlay.playNavigationEndpoint && overlay.playNavigationEndpoint.watchEndpoint;
   const firstRun = (cols[0] && cols[0].runs && cols[0].runs[0]) || {};
   const videoId =
     (r.playlistItemData && r.playlistItemData.videoId) ||
-    (overlay && overlay.playNavigationEndpoint && overlay.playNavigationEndpoint.watchEndpoint && overlay.playNavigationEndpoint.watchEndpoint.videoId) ||
+    (we && we.videoId) ||
     (firstRun.navigationEndpoint && firstRun.navigationEndpoint.watchEndpoint && firstRun.navigationEndpoint.watchEndpoint.videoId);
   if (!videoId) return null;
-  return Object.assign(base, { type: "track", id: videoId });
+  return Object.assign(base, { type: "track", id: videoId, video: isVideoWatch(we) });
 }
 
-// Un mosaico (Inicio, "Ver más", biblioteca).
+// Un mosaico (Inicio, "Ver más", biblioteca, página de un artista).
 function parseTwoRow(t) {
   const title = txt(t.title).trim();
   if (!title) return null;
@@ -266,12 +325,18 @@ function parseTwoRow(t) {
     artist: artistsOf(sub),
     year: yearOf(sub),
     poster: bigThumb(t.thumbnailRenderer && t.thumbnailRenderer.musicThumbnailRenderer),
+    explicit: explicitOf(t.subtitleBadges),
   };
-  if (nav.watchEndpoint && nav.watchEndpoint.videoId) return Object.assign(base, { type: "track", id: nav.watchEndpoint.videoId });
+  if (nav.watchEndpoint && nav.watchEndpoint.videoId) {
+    return Object.assign(base, { type: "track", id: nav.watchEndpoint.videoId, video: isVideoWatch(nav.watchEndpoint) });
+  }
   if (nav.browseEndpoint && nav.browseEndpoint.browseId) {
     const pt = pageTypeOf(nav);
+    if (ARTIST_TYPES.includes(pt)) {
+      return Object.assign(base, { type: "artist", id: nav.browseEndpoint.browseId, artist: "", year: undefined, label: "Artista" });
+    }
     if (pt !== T_ALBUM && pt !== T_PLAYLIST) return null;
-    return Object.assign(base, { type: "browse", id: nav.browseEndpoint.browseId, label: pt === T_ALBUM ? "Álbum" : "Lista" });
+    return Object.assign(base, { type: "browse", id: nav.browseEndpoint.browseId, pt, label: pt === T_ALBUM ? kindLabel(sub, "Álbum") : "Lista" });
   }
   return null;
 }
@@ -327,16 +392,33 @@ function nextToken(root, fallback) {
   return null;
 }
 
+// Cabecera de un álbum, lista o artista: título, portada, año y descripción.
 function headerOf(data) {
-  const h = findAll(data, "musicResponsiveHeaderRenderer")[0] || findAll(data, "musicDetailHeaderRenderer")[0] || findAll(data, "musicImmersiveHeaderRenderer")[0];
+  const h =
+    findAll(data, "musicResponsiveHeaderRenderer")[0] ||
+    findAll(data, "musicDetailHeaderRenderer")[0] ||
+    findAll(data, "musicImmersiveHeaderRenderer")[0];
   if (!h) return {};
-  return { title: txt(h.title).trim() || undefined, poster: bigThumb(h.thumbnail && (h.thumbnail.musicThumbnailRenderer || h.thumbnail.croppedSquareThumbnailRenderer)) };
+  let d = h.description;
+  if (d && d.musicDescriptionShelfRenderer) d = d.musicDescriptionShelfRenderer.description;
+  let overview = txt(d).trim();
+  if (!overview) {
+    overview = [txt(h.subtitle), txt(h.secondSubtitle)].map((s) => s.trim()).filter(Boolean).join(" · ");
+  }
+  const sub = (h.subtitle && h.subtitle.runs) || [];
+  return {
+    title: txt(h.title).trim() || undefined,
+    poster: bigThumb(h.thumbnail && (h.thumbnail.musicThumbnailRenderer || h.thumbnail.croppedSquareThumbnailRenderer)),
+    year: yearOf(sub),
+    overview: overview ? overview.slice(0, 2000) : undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------------------------
 // Items y refs
 //   ref de una pista:   "t:<videoId>|<título>"   (el título solo sirve para rotular el capítulo)
 //   ref de álbum/lista: "b:<browseId>"  (o "b:<browseId>@<params>" para los estados de ánimo y géneros)
+//   ref de artista:     "a:<browseId>"
 // ---------------------------------------------------------------------------------------------
 
 function trackRef(id, title) {
@@ -344,7 +426,7 @@ function trackRef(id, title) {
 }
 
 function parseRef(ref) {
-  const m = /^([tb]):([^|@]+)(?:@([^|]*))?(?:\|(.*))?$/.exec(String(ref || ""));
+  const m = /^([tba]):([^|@]+)(?:@([^|]*))?(?:\|(.*))?$/.exec(String(ref || ""));
   if (!m) return null;
   let title = "";
   try {
@@ -357,53 +439,78 @@ function parseRef(ref) {
 
 function toItem(x) {
   const it = { title: x.title.slice(0, 200), kind: "music" };
+  const badges = [];
   if (x.type === "track") {
     it.id = "t." + x.id;
     it.ref = trackRef(x.id, x.title);
-    it.badges = ["Canción"];
+    badges.push(x.video ? "Video" : "Canción");
+  } else if (x.type === "artist") {
+    it.id = "a." + x.id;
+    it.ref = "a:" + x.id;
+    badges.push("Artista");
   } else {
-    if (x.label) it.badges = [x.label];
     it.id = "b." + x.id;
     it.ref = "b:" + x.id;
+    if (x.label) badges.push(x.label);
   }
+  if (x.explicit) badges.push("Explícito");
+  it.badges = badges.slice(0, 3);
   if (x.artist) it.artist = x.artist.slice(0, 200);
   if (x.poster) it.poster = x.poster;
   if (x.year) it.year = x.year;
   if (x.minutes) it.runtimeMinutes = x.minutes;
+  if (x.type === "track" && x.album) it.overview = ("Álbum: " + x.album).slice(0, 2000);
   return it;
 }
 
-const validId = (x) => /^[A-Za-z0-9._~-]{1,120}$/.test(x.id);
+// Ajuste "Ocultar contenido explícito".
+function hideExplicit() {
+  return kino.config.get("hideExplicit") === true;
+}
 
+// Se queda lo que tiene un id válido y, si la persona lo pidió, no es explícito.
+const keep = (x) => /^[A-Za-z0-9._~-]{1,120}$/.test(x.id) && !(x.explicit && hideExplicit());
+
+// ---------------------------------------------------------------------------------------------
 // ---------------------------------------------------------------------------------------------
 // Capacidades
 // ---------------------------------------------------------------------------------------------
 
 // Una página de YouTube Music vista como filas (las repisas "carrusel" de Inicio, Explorar, Tendencias…).
-function rowsFromShelves(data, prefix, max, fallbackTitle) {
+function rowsFromShelves(data, prefix, max, fallbackTitle, start) {
   const rows = [];
+  const base = start || 0;
   for (const shelf of findAll(data, "musicCarouselShelfRenderer")) {
     if (rows.length >= max) break;
     const header = shelf.header && shelf.header.musicCarouselShelfBasicHeaderRenderer;
     const title = txt(header && header.title).trim();
     if (!title) continue;
-    const items = collectItems(shelf.contents).filter(validId).slice(0, 60).map(toItem);
+    const items = collectItems(shelf.contents).filter(keep).slice(0, 60).map(toItem);
     if (!items.length) continue;
-    const row = { id: (prefix + rows.length).slice(0, 60), title: title.slice(0, 200), items, genre: "musica" };
+    const row = { id: (prefix + (base + rows.length)).slice(0, 60), title: title.slice(0, 200), items, genre: "musica" };
     const more =
       header.moreContentButton &&
       header.moreContentButton.buttonRenderer &&
       header.moreContentButton.buttonRenderer.navigationEndpoint &&
       header.moreContentButton.buttonRenderer.navigationEndpoint.browseEndpoint;
-    if (more && more.browseId) row.ref = "b:" + more.browseId;
+    if (more && more.browseId) {
+      const ref = "b:" + more.browseId + (more.params ? "@" + more.params : "");
+      if (ref.length <= 4000) row.ref = ref;
+    }
     rows.push(row);
   }
   // Páginas en cuadrícula (p. ej. "Nuevos álbumes"): una sola fila con todo lo que haya.
   if (!rows.length && fallbackTitle) {
-    const items = collectItems(data).filter(validId).slice(0, 60).map(toItem);
+    const items = collectItems(data).filter(keep).slice(0, 60).map(toItem);
     if (items.length) rows.push({ id: prefix + "0", title: fallbackTitle, items, genre: "musica" });
   }
   return rows;
+}
+
+// El token para pedir más filas de una página de secciones (Inicio, Explorar…).
+function sectionToken(data) {
+  const sl = findAll(data, "sectionListContinuation")[0] || findAll(data, "sectionListRenderer")[0];
+  return sl ? nextToken(sl) : null;
 }
 
 // Una llamada que puede fallar sin tumbar al resto (se anota en el Registro, nunca con datos personales).
@@ -416,32 +523,84 @@ async function safe(label, fn, fallback) {
   }
 }
 
+// Filas de una página de secciones. La primera respuesta de YouTube Music trae pocas repisas; el resto
+// llega por continuación (como mucho 2 peticiones más y sin pasar del plazo).
+async function loadRows(browseId, prefix, max, fallbackTitle, deadline) {
+  let data = await yt("browse", { browseId });
+  let rows = rowsFromShelves(data, prefix, max, fallbackTitle);
+  for (let i = 0; i < 2 && rows.length < max && Date.now() < deadline; i++) {
+    const tok = sectionToken(data);
+    if (!tok) break;
+    const more = await safe("rows continuation", () => ytCont("browse", tok, { timeoutMs: 8000 }), null);
+    if (!more) break;
+    data = more;
+    rows = rows.concat(rowsFromShelves(more, prefix, max - rows.length, "", rows.length));
+  }
+  return rows;
+}
+
+const norm = (s) => {
+  let t = String(s || "");
+  try {
+    t = t.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  } catch (e) {}
+  return t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+};
+
 // -- Búsqueda ----------------------------------------------------------------------------------
-// Pide a la vez la búsqueda general y las filtradas (canciones, álbumes, listas) y las junta sin repetir:
-// primero las canciones, luego álbumes y listas, y al final lo que solo salió en la búsqueda general.
+// Pide a la vez las búsquedas filtradas (canciones, álbumes, listas, artistas) y la general, y las junta
+// sin repetir: canciones, álbumes, listas y artistas (un artista que se llama igual que la búsqueda va
+// primero). "Ver más resultados" sigue con las siguientes canciones (cursor "s:<token>").
+// Cada petición espera como mucho 10 s: Kino corta la búsqueda a los 15.
 export async function search(query) {
   const q = String((query && query.q) || "").trim();
   if (!q) return [];
   // Dentro de una página de "Ver más": que Kino filtre los títulos ya cargados.
   if (query && query.within) return null;
-  const [songs, albums, lists, general] = await Promise.all([
-    safe("search songs", () => yt("search", { query: q, params: SEARCH_SONGS }), null),
-    safe("search albums", () => yt("search", { query: q, params: SEARCH_ALBUMS }), null),
-    safe("search lists", () => yt("search", { query: q, params: SEARCH_LISTS }), null),
-    safe("search general", () => yt("search", { query: q }), null),
+  if (query && query.cursor) return searchMore(String(query.cursor));
+  const run = (label, params) =>
+    safe(label, () => yt("search", params ? { query: q, params } : { query: q }, { timeoutMs: 10000 }), null);
+  const [songs, albums, lists, artists, general] = await Promise.all([
+    run("search songs", SEARCH_SONGS),
+    run("search albums", SEARCH_ALBUMS),
+    run("search lists", SEARCH_LISTS),
+    run("search artists", SEARCH_ARTISTS),
+    run("search general", ""),
   ]);
-  if (!songs && !albums && !lists && !general) throw kino.error("unavailable", "search sin respuesta");
-  const pick = (d, n) => (d ? collectItems(d).filter(validId).slice(0, n) : []);
+  if (!songs && !albums && !lists && !artists && !general) throw kino.error("unavailable", "search sin respuesta");
+  const pick = (d, n) => (d ? collectItems(d).filter(keep).slice(0, n) : []);
+  const artistList = pick(artists, 6);
+  const exact = artistList.length > 0 && norm(artistList[0].title) === norm(q);
   const out = [];
   const seen = new Set();
-  for (const x of [].concat(pick(songs, 25), pick(albums, 15), pick(lists, 10), pick(general, 60))) {
+  const all = [].concat(
+    exact ? artistList.slice(0, 1) : [],
+    pick(songs, 25),
+    pick(albums, 15),
+    pick(lists, 10),
+    exact ? artistList.slice(1) : artistList,
+    pick(general, 60),
+  );
+  for (const x of all) {
     const k = x.type + x.id;
     if (seen.has(k)) continue;
     seen.add(k);
     out.push(x);
     if (out.length >= 100) break;
   }
-  return out.map(toItem);
+  const items = out.map(toItem);
+  const tok = songs ? nextToken(shelfOf(songs), songs) : null;
+  return tok && tok.length + 2 <= 2048 ? { items, next: "s:" + tok } : items;
+}
+
+async function searchMore(cursor) {
+  const m = /^s:(.+)$/.exec(cursor);
+  if (!m) return { items: [] };
+  const data = await ytCont("search", m[1], { timeoutMs: 10000 });
+  const shelf = shelfOf(data);
+  const items = collectItems(shelf).filter(keep).slice(0, 100).map(toItem);
+  const tok = nextToken(shelf, data);
+  return tok && tok.length + 2 <= 2048 ? { items, next: "s:" + tok } : { items };
 }
 
 // -- Biblioteca (con sesión) ---------------------------------------------------------------------
@@ -453,24 +612,34 @@ async function libraryRows() {
     safe("library history", () => yt("browse", { browseId: "FEmusic_history" }), null),
   ]);
   if (likedData) {
-    const items = collectItems(shelfOf(likedData)).filter((x) => x.type === "track" && validId(x)).slice(0, 60).map(toItem);
+    const items = collectItems(shelfOf(likedData)).filter((x) => x.type === "track" && keep(x)).slice(0, 60).map(toItem);
     if (items.length) rows.push({ id: "yt-liked", title: "Canciones que te gustan", items, ref: "b:VLLM", genre: "musica" });
   }
   if (listsData) {
-    const items = collectItems(listsData).filter((x) => x.type === "browse" && x.id !== "VLLM" && validId(x)).slice(0, 60).map(toItem);
+    const items = collectItems(listsData).filter((x) => x.type === "browse" && x.id !== "VLLM" && keep(x)).slice(0, 60).map(toItem);
     if (items.length) rows.push({ id: "yt-lists", title: "Tus listas", items, ref: "b:FEmusic_liked_playlists", genre: "musica" });
   }
   if (historyData) {
-    const items = collectItems(historyData).filter((x) => x.type === "track" && validId(x)).slice(0, 40).map(toItem);
+    const items = collectItems(historyData).filter((x) => x.type === "track" && keep(x)).slice(0, 40).map(toItem);
     if (items.length) rows.push({ id: "yt-history", title: "Escuchado hace poco", items, ref: "b:FEmusic_history", genre: "musica" });
   }
   return rows;
 }
 
+// Tu biblioteca y las filas de YouTube Music se piden a la vez. Si solo falla la segunda, queda la biblioteca.
 export async function home() {
-  const rows = savedCookie() ? await libraryRows() : [];
-  const data = await yt("browse", { browseId: "FEmusic_home" });
-  return rows.concat(rowsFromShelves(data, "yt", 20 - rows.length));
+  const deadline = Date.now() + 14000;
+  let mainErr = null;
+  const [lib, main] = await Promise.all([
+    savedCookie() ? libraryRows() : Promise.resolve([]),
+    loadRows("FEmusic_home", "yt", 20, "", deadline).catch((e) => {
+      mainErr = e;
+      return [];
+    }),
+  ]);
+  const rows = lib.concat(main.slice(0, 20 - lib.length));
+  if (!rows.length && mainErr) throw mainErr;
+  return rows;
 }
 
 // -- Sección propia de YouTube Music (pestañas, destacado y filas) ---------------------------------
@@ -505,18 +674,19 @@ export async function section(arg) {
   const tabs = sectionTabs();
   const wanted = arg && arg.tab;
   const tab = tabs.some((t) => t.id === wanted) ? wanted : TAB_HOME;
+  const deadline = Date.now() + 14000;
   let rows = [];
   if (tab === TAB_HOME) {
-    rows = rowsFromShelves(await yt("browse", { browseId: "FEmusic_home" }), "inicio", 14);
+    rows = await loadRows("FEmusic_home", "inicio", 14, "", deadline);
   } else if (tab === TAB_EXPLORE) {
     const [explore, releases] = await Promise.all([
-      yt("browse", { browseId: "FEmusic_explore" }),
+      loadRows("FEmusic_explore", "explorar", 12, "", deadline),
       safe("explore releases", () => yt("browse", { browseId: "FEmusic_new_releases_albums" }), null),
     ]);
     rows = releases ? rowsFromShelves(releases, "nuevos", 1, "Nuevos álbumes") : [];
-    rows = rows.concat(rowsFromShelves(explore, "explorar", 12));
+    rows = rows.concat(explore);
   } else if (tab === TAB_CHARTS) {
-    rows = rowsFromShelves(await yt("browse", { browseId: "FEmusic_charts" }), "tendencias", 10);
+    rows = await loadRows("FEmusic_charts", "tendencias", 10, "", deadline);
   } else if (tab === TAB_LIBRARY) {
     rows = await libraryRows();
   }
@@ -548,12 +718,109 @@ export async function categories() {
 export async function browse(ref, cursor) {
   const p = parseRef(ref);
   if (!p || p.type !== "b") return { items: [] };
-  const body = cursor ? { continuation: cursor } : p.params ? { browseId: p.id, params: p.params } : { browseId: p.id };
-  const data = await yt("browse", body);
+  const data = cursor
+    ? await ytCont("browse", cursor)
+    : await yt("browse", p.params ? { browseId: p.id, params: p.params } : { browseId: p.id });
   const shelf = shelfOf(data);
-  const items = collectItems(shelf).filter(validId).slice(0, 100).map(toItem);
+  const items = collectItems(shelf).filter(keep).slice(0, 100).map(toItem);
   const next = nextToken(shelf, data);
   return next && next.length <= 2048 ? { items, next } : { items };
+}
+
+// Las pistas de una página (álbum, lista o "todas las canciones" de un artista), con sus páginas siguientes.
+async function trackPages(data, maxPages, deadline) {
+  const tracks = [];
+  const seen = new Set();
+  for (let page = 0; page < maxPages; page++) {
+    const shelf = shelfOf(data);
+    for (const x of collectItems(shelf)) {
+      if (x.type === "track" && keep(x) && !seen.has(x.id)) {
+        seen.add(x.id);
+        tracks.push(x);
+      }
+    }
+    const next = nextToken(shelf, data);
+    if (!next || tracks.length >= 500 || page === maxPages - 1 || Date.now() > deadline) break;
+    data = await ytCont("browse", next, { timeoutMs: 8000 });
+  }
+  return tracks;
+}
+
+const episodeOf = (x, i, head) => ({
+  season: 1,
+  number: i + 1,
+  ref: trackRef(x.id, x.title),
+  title: x.title.slice(0, 200),
+  still: x.poster || head.poster,
+  runtimeMinutes: x.minutes,
+  overview: x.album ? ("Álbum: " + x.album).slice(0, 2000) : undefined,
+});
+
+// La página de un artista: sus canciones como pistas y sus álbumes y sencillos como "temporadas"
+// (cada una se abre como su propio álbum).
+async function artistEpisodes(id, deadline) {
+  const data = await yt("browse", { browseId: id });
+  const head = headerOf(data);
+  const shelf = findAll(data, "musicShelfRenderer")[0];
+  let tracks = await trackPages(data, 1, deadline);
+  const bottom = shelf && shelf.bottomEndpoint && shelf.bottomEndpoint.browseEndpoint;
+  if (bottom && bottom.browseId && Date.now() < deadline) {
+    const all = await safe(
+      "artist songs",
+      () => yt("browse", bottom.params ? { browseId: bottom.browseId, params: bottom.params } : { browseId: bottom.browseId }, { timeoutMs: 8000 }),
+      null,
+    );
+    if (all) {
+      const full = await trackPages(all, 3, deadline);
+      if (full.length > tracks.length) tracks = full;
+    }
+  }
+  // Álbumes y sencillos: los de la página y los de sus botones "Ver todo".
+  const albums = [];
+  const seenAlbum = new Set();
+  const addAlbums = (root) => {
+    for (const x of collectItems(root)) {
+      if (albums.length >= 49) break;
+      if (x.type !== "browse" || x.pt !== T_ALBUM || !keep(x) || seenAlbum.has(x.id)) continue;
+      seenAlbum.add(x.id);
+      albums.push(x);
+    }
+  };
+  addAlbums(data);
+  const more = [];
+  for (const sh of findAll(data, "musicCarouselShelfRenderer")) {
+    const hdr = sh.header && sh.header.musicCarouselShelfBasicHeaderRenderer;
+    const ep =
+      hdr &&
+      hdr.moreContentButton &&
+      hdr.moreContentButton.buttonRenderer &&
+      hdr.moreContentButton.buttonRenderer.navigationEndpoint &&
+      hdr.moreContentButton.buttonRenderer.navigationEndpoint.browseEndpoint;
+    if (ep && ep.browseId && collectItems(sh.contents).some((x) => x.type === "browse" && x.pt === T_ALBUM)) more.push(ep);
+  }
+  if (more.length && Date.now() < deadline) {
+    const pages = await Promise.all(
+      more.slice(0, 2).map((ep) =>
+        safe("artist albums", () => yt("browse", ep.params ? { browseId: ep.browseId, params: ep.params } : { browseId: ep.browseId }, { timeoutMs: 8000 }), null),
+      ),
+    );
+    for (const pg of pages) if (pg) addAlbums(pg);
+  }
+  if (!tracks.length && albums.length) {
+    const d = await safe("artist first album", () => yt("browse", { browseId: albums[0].id }, { timeoutMs: 8000 }), null);
+    if (d) tracks = await trackPages(d, 1, deadline);
+  }
+  if (!tracks.length) throw kino.error("not_found", "artista sin pistas", { userMessage: "No se encontraron canciones de este artista." });
+  const out = {
+    series: { title: head.title, poster: head.poster, backdrop: head.poster, overview: head.overview },
+    episodes: tracks.slice(0, 500).map((x, i) => episodeOf(x, i, head)),
+  };
+  if (albums.length) {
+    out.seasons = [{ id: "a." + id, ref: "a:" + id, title: "Canciones", current: true }].concat(
+      albums.map((a) => ({ id: "b." + a.id, ref: "b:" + a.id, title: a.title.slice(0, 200) })),
+    );
+  }
+  return out;
 }
 
 export async function episodes(ref) {
@@ -561,37 +828,20 @@ export async function episodes(ref) {
   if (!p) throw kino.error("not_found", "ref no válido");
   // Una pista suelta es un álbum de una sola pista.
   if (p.type === "t") return { episodes: [{ season: 1, number: 1, ref: String(ref), title: p.title || undefined }] };
+  const deadline = Date.now() + 14000;
+  if (p.type === "a") return artistEpisodes(p.id, deadline);
 
-  let data = await yt("browse", { browseId: p.id });
+  const data = await yt("browse", { browseId: p.id });
   const head = headerOf(data);
-  const tracks = [];
-  const seen = new Set();
-  for (let page = 0; page < 6; page++) {
-    const shelf = shelfOf(data);
-    for (const x of collectItems(shelf)) {
-      if (x.type === "track" && validId(x) && !seen.has(x.id)) {
-        seen.add(x.id);
-        tracks.push(x);
-      }
-    }
-    const next = nextToken(shelf, data);
-    if (!next || tracks.length >= 500 || page === 5) break;
-    data = await yt("browse", { continuation: next });
-  }
+  const tracks = await trackPages(data, 6, deadline);
   if (!tracks.length) throw kino.error("not_found", "sin pistas", { userMessage: "No se encontraron canciones en esta lista." });
   return {
-    series: { title: head.title, poster: head.poster },
-    episodes: tracks.slice(0, 5000).map((x, i) => ({
-      season: 1,
-      number: i + 1,
-      ref: trackRef(x.id, x.title),
-      title: x.title.slice(0, 200),
-      still: x.poster || head.poster,
-      runtimeMinutes: x.minutes,
-    })),
+    series: { title: head.title, poster: head.poster, backdrop: head.poster, overview: head.overview, year: head.year },
+    episodes: tracks.slice(0, 5000).map((x, i) => episodeOf(x, i, head)),
   };
 }
 
+// ---------------------------------------------------------------------------------------------
 // ---------------------------------------------------------------------------------------------
 // Reproducción
 // ---------------------------------------------------------------------------------------------
@@ -647,7 +897,18 @@ async function probeUrl(url, ua, isHls, clen) {
   }
 }
 
+// Último estado de reproducción que dio YouTube en esta llamada (para decidir sin leer textos traducidos).
+let lastPlayability = null;
+
+// Aviso al tablero de errores de Kino (solo si el plugin declara telemetría y esta versión de Kino lo trae).
+function report(area, detail) {
+  try {
+    if (kino.log && typeof kino.log.report === "function") kino.log.report(area, detail || "");
+  } catch (e) {}
+}
+
 async function playerFor(videoId) {
+  lastPlayability = null;
   const { hl, gl } = locale();
   const vd = await visitorData();
   let lastStatus = null;
@@ -690,6 +951,7 @@ async function playerFor(videoId) {
     const status = d.playabilityStatus || {};
     if (status.status !== "OK") {
       lastStatus = status;
+      lastPlayability = { status: String(status.status || "") };
       const sub = JSON.stringify(status.errorScreen || {}).match(/"text":"([^"]{1,120})"/);
       kino.log("player", c.client.clientName, String(status.status), "reason=" + String(status.reason || "").slice(0, 120), sub ? "sub=" + sub[1] : "");
       continue;
@@ -720,9 +982,13 @@ async function playerFor(videoId) {
     if (st === 200 || st === 206) return found;
     if (!fallback) fallback = found;
   }
-  if (fallback) return fallback; // ninguna pasó la prueba: se entrega la primera por si el reproductor sí la acepta
+  if (fallback) {
+    report("player_degraded", "sin prueba valida");
+    return fallback; // ninguna pasó la prueba: se entrega la primera por si el reproductor sí la acepta
+  }
   const reason = String((lastStatus && lastStatus.reason) || "");
-  if (/country|region|pa[ií]s|regi[oó]n/i.test(reason)) throw kino.error("geo_blocked", reason.slice(0, 150));
+  report("player_failed", String((lastStatus && lastStatus.status) || "sin_estado"));
+  if (/country|region|pa[ií]s|regi[oó]n|regi[aã]o|pays|paese|land/i.test(reason)) throw kino.error("geo_blocked", reason.slice(0, 150));
   if (lastStatus && lastStatus.status && lastStatus.status !== "LOGIN_REQUIRED" && lastStatus.status !== "ERROR") {
     const why = String(lastStatus.reason || "").slice(0, 120);
     throw kino.error("not_found", String(lastStatus.status) + (why ? ": " + why : ""), {
@@ -754,21 +1020,15 @@ async function resolveDirect(videoId) {
     stream = { url: hlsUrl, mime: "application/vnd.apple.mpegurl", headers, label: "HLS" };
     if (ordered.length) stream.alternatives = ordered.slice(0, 2).map(plain);
   } else {
-    // Diagnóstico: ¿funciona el rango dentro del enlace, sin encabezado Range? ¿y sin nuestro User-Agent?
+    // ¿Funciona el rango dentro del enlace, sin encabezado Range? (una sola petición de prueba)
     const f0 = ordered[0];
     const len = Number(f0.contentLength);
     let rangedOk = false;
     if (Number.isFinite(len) && len > 1) {
       const probe = withRange(f0.url, 1);
       const withUa = await probeUrl(probe, ua, true);
-      let noUa = "-";
-      try {
-        noUa = (await kino.fetch(probe, { cookies: false, timeoutMs: 8000 })).status;
-      } catch (e) {
-        noUa = String(e.code || "error");
-      }
       rangedOk = withUa === 200 || withUa === 206;
-      kino.log("probe rango-en-url: con UA ->", withUa, "| sin UA ->", noUa);
+      kino.log("probe rango-en-url ->", withUa);
     } else {
       kino.log("probe rango-en-url: sin contentLength");
     }
@@ -819,7 +1079,7 @@ function stripParams(url, names) {
 
 const AD_FREE_MATCH = "^(?!.*[?&]ctier=).*videoplayback";
 
-async function resolveViaBrowser(videoId) {
+async function resolveViaBrowser(videoId, timeoutMs) {
   let page;
   try {
     page = await kino.browser.capture("https://music.youtube.com/watch?v=" + videoId, {
@@ -827,10 +1087,11 @@ async function resolveViaBrowser(videoId) {
       // invitado. Los anuncios pasan de largo (la página los reproduce en silencio) y la captura espera
       // a que empiece la canción de verdad.
       match: AD_FREE_MATCH,
-      timeoutMs: 25000,
+      timeoutMs: timeoutMs || 25000,
     });
   } catch (e) {
     kino.log("browser capture:", e.code || "error");
+    report("browser_failed", String(e.code || "error"));
     if (e.code === "blocked") {
       throw kino.error("unavailable", "capture blocked", { userMessage: "YouTube pidió verificar que eres una persona. Prueba de nuevo más tarde." });
     }
@@ -889,11 +1150,81 @@ async function resolveViaBrowser(videoId) {
   return stream;
 }
 
-export async function resolve(ref) {
+// --- Caché de streams ya resueltos ---------------------------------------------------------------
+// Va por calidad (si cambias de AAC a Opus no se sirve el formato viejo) y con tope de tamaño: kino.storage
+// guarda 256 KB en total, así que se llevan las cuentas en un índice y salen primero las más viejas.
+const CACHE_IDX = "streamIdx";
+const CACHE_MAX_BYTES = 150000;
+const CACHE_MAX_ENTRIES = 16;
+
+const cacheKey = (id) => "stream:" + (kino.config.get("quality") === "opus" ? "opus" : "aac") + ":" + id;
+
+function cacheGet(key) {
+  try {
+    const raw = kino.storage.get(key);
+    if (!raw) return null;
+    const e = JSON.parse(raw);
+    if (!e || !e.s || !e.exp) return null;
+    const left = Math.round((e.exp - Date.now()) / 1000);
+    if (left < 120) {
+      kino.storage.remove(key);
+      return null;
+    }
+    // Lo que de verdad le queda a la URL (no el plazo con el que se guardó): así Kino la renueva a tiempo.
+    e.s.expiresInSeconds = Math.max(30, Math.min(86400, left - 30));
+    return e.s;
+  } catch (err) {
+    return null;
+  }
+}
+
+function cachePut(key, stream, ttlMs) {
+  try {
+    const slim = Object.assign({}, stream);
+    const alts = slim.alternatives || [];
+    if (alts.length > 3) slim.alternatives = alts.slice(0, 2).concat(alts.slice(-1)); // las dos mejores y la perezosa
+    const raw = JSON.stringify({ s: slim, exp: Date.now() + ttlMs });
+    if (raw.length > 40000) return;
+    let idx = [];
+    try {
+      idx = JSON.parse(kino.storage.get(CACHE_IDX) || "[]");
+    } catch (e) {
+      idx = [];
+    }
+    const now = Date.now();
+    idx = idx.filter((x) => x && x[0] !== key && x[2] > now);
+    idx.push([key, raw.length, now + ttlMs]);
+    let total = idx.reduce((a, x) => a + x[1], 0);
+    while (idx.length > 1 && (total > CACHE_MAX_BYTES || idx.length > CACHE_MAX_ENTRIES)) {
+      const old = idx.shift();
+      total -= old[1];
+      try {
+        kino.storage.remove(old[0]);
+      } catch (e) {}
+    }
+    kino.storage.set(key, raw, { ttlMs });
+    kino.storage.set(CACHE_IDX, JSON.stringify(idx), { ttlMs: 6 * 3600 * 1000 });
+  } catch (e) {}
+}
+
+// El navegador oculto como copia perezosa: solo se abre si la persona la elige en "Servidor" o si las otras fallan.
+function withBrowserCopy(stream, id) {
+  const alts = (stream.alternatives || []).filter((a) => !a.ref).slice(0, 7);
+  alts.push({ label: "Navegador oculto", ref: "tb:" + id });
+  stream.alternatives = alts;
+}
+
+export async function resolve(ref, options) {
   kino.log("ytmusic v" + VERSION + " resolve");
+  const canBrowse = !!(kino.browser && typeof kino.browser.capture === "function");
+  // Copia perezosa del navegador oculto (Kino la pide con su propio ref; si la pide el cambio automático tiene 20 s).
+  const lazy = /^tb:([A-Za-z0-9_-]{11})$/.exec(String(ref || ""));
+  if (lazy) {
+    if (!canBrowse) throw kino.error("unavailable", "sin navegador oculto");
+    return resolveViaBrowser(lazy[1], 18000);
+  }
   const p = parseRef(ref);
   if (!p || p.type !== "t" || !/^[A-Za-z0-9_-]{11}$/.test(p.id)) throw kino.error("not_found", "ref de pista no válido");
-  const canBrowse = !!(kino.browser && typeof kino.browser.capture === "function");
   if (kino.config.get("method") === "browser" && canBrowse) {
     try {
       return await resolveViaBrowser(p.id);
@@ -901,34 +1232,41 @@ export async function resolve(ref) {
       if (e.code !== "not_allowed" && e.code !== "browser_unavailable") throw e;
     }
   }
-  const key = "stream:" + p.id;
-  try {
-    const hit = kino.storage.get(key);
+  const key = cacheKey(p.id);
+  if (options && options.retry) {
+    // Kino vuelve a pedir porque el servidor rechazó la URL: la guardada ya no sirve.
+    try {
+      kino.storage.remove(key);
+    } catch (e) {}
+  } else {
+    const hit = cacheGet(key);
     if (hit) {
       kino.log("cache hit");
-      return JSON.parse(hit);
+      return hit;
     }
-  } catch (e) {}
+  }
   let stream;
+  let viaDirect = true;
   try {
     stream = await resolveDirect(p.id);
   } catch (e) {
-    // Ningún cliente entregó audio. Si YouTube dice que la pista no existe / no está disponible, el navegador
+    // Ningún cliente entregó audio. Si YouTube dice que la pista no se puede reproducir (UNPLAYABLE), el navegador
     // oculto tampoco la va a conseguir: se falla en el acto con el motivo real. Solo se prueba el navegador
     // en los demás casos, y si él también falla se devuelve el error ORIGINAL (no el del bot-check).
-    if (e.code !== "not_found" || !canBrowse || /no est[aá] disponible|not available|unavailable|private|privad|eliminad|removed|terminated/i.test(String(e.message || ""))) throw e;
+    const definitive = !!lastPlayability && lastPlayability.status === "UNPLAYABLE";
+    if (e.code !== "not_found" || !canBrowse || definitive) throw e;
     kino.log("resolveDirect not_found -> navegador oculto");
     try {
       stream = await resolveViaBrowser(p.id);
+      viaDirect = false;
     } catch (e2) {
       kino.log("navegador oculto tampoco:", e2.code || "error");
       throw e;
     }
   }
-  try {
-    const ttl = Number(stream.expiresInSeconds) > 60 ? (Number(stream.expiresInSeconds) - 30) * 1000 : 0;
-    if (ttl) kino.storage.set(key, JSON.stringify(stream), { ttlMs: ttl });
-  } catch (e) {}
+  if (viaDirect && canBrowse) withBrowserCopy(stream, p.id);
+  const ttl = Number(stream.expiresInSeconds) > 60 ? (Number(stream.expiresInSeconds) - 30) * 1000 : 0;
+  if (ttl) cachePut(key, stream, ttl);
   return stream;
 }
 
@@ -975,5 +1313,48 @@ export async function validateSettings(values) {
   }
   const name = await accountName(cookie); // un fallo de red lanza: la persona puede "Guardar sin comprobar"
   if (!name) return { cookieA: "Google no reconoce esta sesión. Copia las cookies de nuevo." };
+  return null;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Pasar lo guardado (capacidad "migrate"). Sin peticiones: solo reconoce enlaces de YouTube que la persona
+// tenía guardados con otra forma (direcciones web, ids de listas y de álbumes) y los vuelve refs de este plugin.
+// Solo reclama lo que es inconfundiblemente de YouTube, para no quitarle nada a otros plugins.
+// ---------------------------------------------------------------------------------------------
+function browseKind(id) {
+  if (/^UC[A-Za-z0-9_-]{22}$/.test(id) || /^MPLAUC/.test(id)) return { type: "a", id };
+  if (/^OLAK5uy_/.test(id)) return { type: "b", id: "VL" + id };
+  return { type: "b", id };
+}
+
+function legacyRef(raw) {
+  const s = String(raw || "").trim();
+  if (!s || s.length > 2000) return null;
+  const web = /(?:^|\/\/|\.)(?:music\.youtube\.com|youtube\.com|youtu\.be)(?:\/|$)/i.test(s);
+  let m;
+  if (web) {
+    if ((m = /(?:youtu\.be\/|[?&]v=)([A-Za-z0-9_-]{11})(?![A-Za-z0-9_-])/.exec(s))) return { type: "t", id: m[1] };
+    if ((m = /[?&]list=([A-Za-z0-9_-]{10,60})/.exec(s))) return { type: "b", id: /^VL/.test(m[1]) ? m[1] : "VL" + m[1] };
+    if ((m = /\/(?:browse|channel)\/([A-Za-z0-9_-]{8,120})/.exec(s))) return browseKind(m[1]);
+    return null;
+  }
+  if (/^(MPREb_|OLAK5uy_)[A-Za-z0-9_-]+$/.test(s) || /^VL(PL|RD|OLAK5uy_)[A-Za-z0-9_-]+$/.test(s) || /^UC[A-Za-z0-9_-]{22}$/.test(s)) return browseKind(s);
+  return null;
+}
+
+export async function migrate(input) {
+  await null;
+  if (!input || typeof input !== "object") return null;
+  const r = legacyRef(input.ref);
+  if (!r) return null;
+  if (input.kind === "title") {
+    if (r.type === "t") return { kind: "music", id: "t." + r.id, ref: trackRef(r.id) };
+    return { kind: "music", id: r.type + "." + r.id, ref: r.type + ":" + r.id };
+  }
+  if (input.kind === "chapter") {
+    if (r.type !== "t") return null;
+    const n = Math.floor(Number(input.episode));
+    return { kind: "episode", ref: trackRef(r.id), season: 1, number: n > 0 ? n : 1 };
+  }
   return null;
 }
