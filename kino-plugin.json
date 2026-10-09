@@ -1,7 +1,7 @@
 {
   "id": "ytmusic",
   "name": "YouTube Music",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "apiVersion": 8,
   "entry": "plugin.js",
   "description": "Música de YouTube Music con tema rojo: busca canciones, álbumes y listas, explora tendencias y géneros; con tu sesión ves tus Me gusta y tus listas",

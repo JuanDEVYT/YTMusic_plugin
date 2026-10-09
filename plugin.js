@@ -10,7 +10,7 @@ const API = "https://music.youtube.com/youtubei/v1/";
 const ORIGIN = "https://music.youtube.com";
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
-const VERSION = "0.4.0";
+const VERSION = "0.4.1";
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC"];
 
 // Clientes para /player, en orden de preferencia. VISIONOS entrega URLs directas de audio que googlevideo
@@ -690,7 +690,8 @@ async function playerFor(videoId) {
     const status = d.playabilityStatus || {};
     if (status.status !== "OK") {
       lastStatus = status;
-      kino.log("player", c.client.clientName, String(status.status));
+      const sub = JSON.stringify(status.errorScreen || {}).match(/"text":"([^"]{1,120})"/);
+      kino.log("player", c.client.clientName, String(status.status), "reason=" + String(status.reason || "").slice(0, 120), sub ? "sub=" + sub[1] : "");
       continue;
     }
     const sd = d.streamingData || {};
@@ -897,7 +898,28 @@ export async function resolve(ref) {
       if (e.code !== "not_allowed" && e.code !== "browser_unavailable") throw e;
     }
   }
-  return resolveDirect(p.id);
+  const key = "stream:" + p.id;
+  try {
+    const hit = kino.storage.get(key);
+    if (hit) {
+      kino.log("cache hit");
+      return JSON.parse(hit);
+    }
+  } catch (e) {}
+  let stream;
+  try {
+    stream = await resolveDirect(p.id);
+  } catch (e) {
+    // Ningún cliente entregó audio: se prueba el reproductor real en el navegador oculto, salvo bloqueo por país.
+    if (e.code !== "not_found" || !canBrowse) throw e;
+    kino.log("resolveDirect not_found -> navegador oculto");
+    stream = await resolveViaBrowser(p.id);
+  }
+  try {
+    const ttl = Number(stream.expiresInSeconds) > 60 ? (Number(stream.expiresInSeconds) - 30) * 1000 : 0;
+    if (ttl) kino.storage.set(key, JSON.stringify(stream), { ttlMs: ttl });
+  } catch (e) {}
+  return stream;
 }
 
 // ---------------------------------------------------------------------------------------------
