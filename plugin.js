@@ -10,7 +10,7 @@ const API = "https://music.youtube.com/youtubei/v1/";
 const ORIGIN = "https://music.youtube.com";
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
-const VERSION = "0.5.0";
+const VERSION = "0.5.1";
 // Cada ajuste "password" admite 500 caracteres como máximo (límite de Kino): por eso 4 partes = 2000.
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC", "cookieD"];
 
@@ -1214,6 +1214,46 @@ function withBrowserCopy(stream, id) {
   stream.alternatives = alts;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Audio 8D: busca en YouTube Music la versión 8D de la canción y devuelve su videoId.
+// Si no la encuentra, devuelve null (el flujo normal continúa con el id original).
+// Solo se prueba si el toggle "audio8d" está activo y el ref trae título.
+// ---------------------------------------------------------------------------------------------
+async function find8dVersion(originalId, title) {
+  if (!title) return null;
+  try {
+    const q = title + " 8D audio";
+    const norm8d = (s) => String(s || "").toLowerCase().replace(/\s+/g, "");
+    // Busca primero entre canciones (SEARCH_SONGS) y luego en general (videos incluidos).
+    // Así cubre tanto uploads de audio 8D como videos musicales 8D subidos como video.
+    const [songsData, generalData] = await Promise.all([
+      yt("search", { query: q, params: SEARCH_SONGS }, { timeoutMs: 8000 }).catch(() => null),
+      yt("search", { query: q }, { timeoutMs: 8000 }).catch(() => null),
+    ]);
+    const candidates = [];
+    const seen = new Set();
+    for (const data of [songsData, generalData]) {
+      if (!data) continue;
+      for (const x of collectItems(data)) {
+        if (x.type !== "track" || !keep(x) || seen.has(x.id)) continue;
+        seen.add(x.id);
+        candidates.push(x);
+      }
+    }
+    // Acepta el primero cuyo título contenga "8d" y sea distinto al original.
+    const hit = candidates.find((x) => x.id !== originalId && norm8d(x.title).includes("8d"));
+    if (hit) {
+      kino.log("8D encontrada:", hit.id, hit.title.slice(0, 60));
+      return hit.id;
+    }
+    kino.log("8D no encontrada para:", title.slice(0, 60));
+    return null;
+  } catch (e) {
+    kino.log("8D search:", e.code || "error");
+    return null;
+  }
+}
+
 export async function resolve(ref, options) {
   kino.log("ytmusic v" + VERSION + " resolve");
   const canBrowse = !!(kino.browser && typeof kino.browser.capture === "function");
@@ -1223,8 +1263,16 @@ export async function resolve(ref, options) {
     if (!canBrowse) throw kino.error("unavailable", "sin navegador oculto");
     return resolveViaBrowser(lazy[1], 18000);
   }
-  const p = parseRef(ref);
+  let p = parseRef(ref);
   if (!p || p.type !== "t" || !/^[A-Za-z0-9_-]{11}$/.test(p.id)) throw kino.error("not_found", "ref de pista no válido");
+
+  // Audio 8D: si está activo, se intenta resolver el equivalente 8D antes de cualquier otra lógica.
+  // La búsqueda es rápida (8 s máx.) y silenciosa: si falla o no hay resultado, se sigue con el original.
+  if (kino.config.get("audio8d") === true && p.title) {
+    const id8d = await find8dVersion(p.id, p.title);
+    if (id8d) p = Object.assign({}, p, { id: id8d });
+  }
+
   if (kino.config.get("method") === "browser" && canBrowse) {
     try {
       return await resolveViaBrowser(p.id);
