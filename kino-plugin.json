@@ -126,7 +126,7 @@
       "label": "Audio 8D",
       "type": "toggle",
       "default": false,
-      "hint": "Busca la versión 8D de cada canción en YouTube Music; si no la encuentra, usa la original"
+      "hint": "Busca la versión 8D en YouTube; si no hay, usa la original"
     },
     {
       "key": "content",
