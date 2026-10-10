@@ -1,33 +1,146 @@
 {
-  "id": "juan-iptv",
-  "name": "JuanIPTV",
-  "version": "1.0.0",
-  "apiVersion": 3,
+  "id": "ytmusic",
+  "name": "YouTube Music",
+  "version": "0.5.1",
+  "apiVersion": 8,
   "entry": "plugin.js",
-  "description": "Genera y prueba cuentas IPTV automáticamente. Busca servidores activos y te da canales en vivo sin configurar nada.",
-  "author": "juansecondary473@gmail.com",
-  "hosts": [],
-  "capabilities": ["home", "resolve", "channels"],
-  "liveStreamHosts": "any",
-  "color": "#E8A020",
+  "description": "Música de YouTube Music con tema rojo: busca canciones, álbumes, listas y artistas, explora tendencias y géneros y descarga; con tu sesión ves tus Me gusta y tus listas",
+  "author": "JuanDEVYT",
+  "homepage": "https://github.com/JuanDEVYT/YTMusic_plugin",
+  "hosts": [
+    "music.youtube.com",
+    "www.youtube.com",
+    "*.googlevideo.com"
+  ],
+  "capabilities": [
+    "search",
+    "home",
+    "browse",
+    "episodes",
+    "resolve",
+    "scopedSearch",
+    "download",
+    "migrate"
+  ],
+  "color": "#FF0050",
   "icon": "icon.png",
+  "section": {
+    "label": "YT Music"
+  },
+  "theme": {
+    "accent": "#FF0050",
+    "onAccent": "#000000",
+    "background": "#0A0A0A",
+    "surface": "#1C1C1C",
+    "highlight": "#F1F1F1"
+  },
+  "debug": false,
+  "telemetry": true,
   "settings": [
     {
-      "key": "fuenteExtra",
-      "label": "Fuente extra (opcional)",
-      "type": "url",
-      "hint": "URL de un Pastebin o lista raw con cuentas Xtream"
+      "key": "about",
+      "label": "YouTube Music",
+      "type": "section",
+      "hint": "Pestañas Para ti, Explorar, Tendencias y Biblioteca; géneros en Categorías."
     },
     {
-      "key": "maxCuentas",
-      "label": "Máximo de servidores a probar",
+      "key": "account",
+      "label": "Tu cuenta de YouTube Music",
+      "type": "section",
+      "hint": "Opcional. Sin sesión usas YouTube Music como invitado. Mira el README."
+    },
+    {
+      "key": "cookieA",
+      "label": "Cookies (parte 1)",
+      "type": "password",
+      "hint": "Primeros 500 caracteres"
+    },
+    {
+      "key": "cookieB",
+      "label": "Cookies (parte 2)",
+      "type": "password",
+      "hint": "Siguientes 500 caracteres, si hacen falta"
+    },
+    {
+      "key": "cookieC",
+      "label": "Cookies (parte 3)",
+      "type": "password",
+      "hint": "Siguientes 500 caracteres, si hacen falta"
+    },
+    {
+      "key": "cookieD",
+      "label": "Cookies (parte 4)",
+      "type": "password",
+      "hint": "Resto (hasta 500 más), si hace falta"
+    },
+    {
+      "key": "linked",
+      "label": "Estado de la sesión",
+      "type": "status"
+    },
+    {
+      "key": "logout",
+      "label": "Cerrar sesión",
+      "type": "action",
+      "confirm": "¿Olvidar las cookies guardadas en todos tus aparatos?"
+    },
+    {
+      "key": "playback",
+      "label": "Reproducción",
+      "type": "section"
+    },
+    {
+      "key": "quality",
+      "label": "Formato de audio",
       "type": "select",
+      "default": "aac",
       "options": [
-        { "value": "5", "label": "5 (rápido)" },
-        { "value": "10", "label": "10" },
-        { "value": "20", "label": "20 (completo)" }
-      ],
-      "default": "10"
+        {
+          "value": "aac",
+          "label": "AAC (más compatible)"
+        },
+        {
+          "value": "opus",
+          "label": "Opus (más calidad)"
+        }
+      ]
+    },
+    {
+      "key": "method",
+      "label": "Método de reproducción",
+      "type": "select",
+      "default": "auto",
+      "options": [
+        {
+          "value": "auto",
+          "label": "Automático (recomendado)"
+        },
+        {
+          "value": "browser",
+          "label": "Navegador oculto (experimental)"
+        }
+      ]
+    },
+    {
+      "key": "audio8d",
+      "label": "Audio 8D",
+      "type": "toggle",
+      "default": false,
+      "hint": "Busca la versión 8D en YouTube; si no hay, usa la original"
+    },
+    {
+      "key": "content",
+      "label": "Contenido",
+      "type": "section",
+      "hint": "Opcional: filtra lo que sale en búsquedas, Inicio y listas."
+    },
+    {
+      "key": "hideExplicit",
+      "label": "Ocultar contenido explícito",
+      "type": "toggle",
+      "default": false,
+      "hint": "Quita canciones y álbumes marcados como explícitos"
     }
-  ]
+  ],
+  "browser": true
 }
