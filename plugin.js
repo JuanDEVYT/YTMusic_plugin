@@ -10,7 +10,7 @@ const API = "https://music.youtube.com/youtubei/v1/";
 const ORIGIN = "https://music.youtube.com";
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
-const VERSION = "0.5.1";
+const VERSION = "0.5.2";
 // Cada ajuste "password" admite 500 caracteres como máximo (límite de Kino): por eso 4 partes = 2000.
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC", "cookieD"];
 
@@ -1208,8 +1208,8 @@ function cachePut(key, stream, ttlMs) {
 }
 
 // El navegador oculto como copia perezosa: solo se abre si la persona la elige en "Servidor" o si las otras fallan.
-function withBrowserCopy(stream, id) {
-  const alts = (stream.alternatives || []).filter((a) => !a.ref).slice(0, 7);
+function withBrowserCopy(stream, id, reserve) {
+  const alts = (stream.alternatives || []).filter((a) => !a.ref).slice(0, 7 - (reserve || 0));
   alts.push({ label: "Navegador oculto", ref: "tb:" + id });
   stream.alternatives = alts;
 }
@@ -1263,16 +1263,30 @@ export async function resolve(ref, options) {
     if (!canBrowse) throw kino.error("unavailable", "sin navegador oculto");
     return resolveViaBrowser(lazy[1], 18000);
   }
-  let p = parseRef(ref);
+  // Copia perezosa "Audio original": la pista original, sin buscar su versión 8D (la persona la eligió en "Servidor").
+  const orig = /^to:([A-Za-z0-9_-]{11})$/.exec(String(ref || ""));
+  if (orig) return resolveTrack({ type: "t", id: orig[1], params: "", title: "" }, options, canBrowse, 0);
+
+  const p = parseRef(ref);
   if (!p || p.type !== "t" || !/^[A-Za-z0-9_-]{11}$/.test(p.id)) throw kino.error("not_found", "ref de pista no válido");
 
   // Audio 8D: si está activo, se intenta resolver el equivalente 8D antes de cualquier otra lógica.
   // La búsqueda es rápida (8 s máx.) y silenciosa: si falla o no hay resultado, se sigue con el original.
+  // Si se encuentra, "Servidor" ofrece "Audio 8D" (el que suena) y "Audio original" (copia perezosa) para intercambiarlos.
   if (kino.config.get("audio8d") === true && p.title) {
     const id8d = await find8dVersion(p.id, p.title);
-    if (id8d) p = Object.assign({}, p, { id: id8d });
+    if (id8d) {
+      const stream = await resolveTrack(Object.assign({}, p, { id: id8d }), options, canBrowse, 1);
+      const alts = (stream.alternatives || []).slice(0, 7);
+      alts.unshift({ label: "Audio original", ref: "to:" + p.id });
+      return Object.assign({}, stream, { label: "Audio 8D", alternatives: alts.slice(0, 8) });
+    }
   }
+  return resolveTrack(p, options, canBrowse, 0);
+}
 
+// Resuelve el audio de una pista (ya sin lógica 8D). "reserve" deja sitio en las copias para entradas extra.
+async function resolveTrack(p, options, canBrowse, reserve) {
   if (kino.config.get("method") === "browser" && canBrowse) {
     try {
       return await resolveViaBrowser(p.id);
@@ -1312,7 +1326,7 @@ export async function resolve(ref, options) {
       throw e;
     }
   }
-  if (viaDirect && canBrowse) withBrowserCopy(stream, p.id);
+  if (viaDirect && canBrowse) withBrowserCopy(stream, p.id, reserve);
   const ttl = Number(stream.expiresInSeconds) > 60 ? (Number(stream.expiresInSeconds) - 30) * 1000 : 0;
   if (ttl) cachePut(key, stream, ttl);
   return stream;
