@@ -1222,14 +1222,16 @@ function withBrowserCopy(stream, id, reserve) {
 async function find8dVersion(originalId, title) {
   if (!title) return null;
   try {
-    const q = title + " 8D audio";
-    const norm8d = (s) => String(s || "").toLowerCase().replace(/\s+/g, "");
+    const cleanTitle = String(title || "").trim();
+    const q = cleanTitle + " 8D audio";
+    const norm = (s) => String(s || "").toLowerCase().replace(/\s+/g, "");
+
     // Busca primero entre canciones (SEARCH_SONGS) y luego en general (videos incluidos).
-    // Así cubre tanto uploads de audio 8D como videos musicales 8D subidos como video.
     const [songsData, generalData] = await Promise.all([
       yt("search", { query: q, params: SEARCH_SONGS }, { timeoutMs: 8000 }).catch(() => null),
       yt("search", { query: q }, { timeoutMs: 8000 }).catch(() => null),
     ]);
+
     const candidates = [];
     const seen = new Set();
     for (const data of [songsData, generalData]) {
@@ -1240,16 +1242,96 @@ async function find8dVersion(originalId, title) {
         candidates.push(x);
       }
     }
-    // Acepta el primero cuyo título contenga "8d" y sea distinto al original.
-    const hit = candidates.find((x) => x.id !== originalId && norm8d(x.title).includes("8d"));
-    if (hit) {
-      kino.log("8D encontrada:", hit.id, hit.title.slice(0, 60));
-      return hit.id;
+
+    const origLower = cleanTitle.toLowerCase();
+    const unwantedTerms = [
+      "slowed",
+      "slow",
+      "reverb",
+      "speed up",
+      "sped up",
+      "speedup",
+      "spedup",
+      "nightcore",
+      "daycore",
+      "hardtekk",
+      "hardstyle",
+      "chopped",
+      "screwed",
+      "chipmunk",
+      "bass boosted",
+      "bassboosted",
+      "mashup",
+      "parody",
+      "pitch"
+    ];
+
+    function scoreCandidate(c) {
+      if (c.id === originalId) return -1000;
+      const cTitle = String(c.title || "").toLowerCase();
+      const cNorm = norm(cTitle);
+
+      // Debe contener indicación de 8D
+      if (!cNorm.includes("8d") && !cNorm.includes("9d") && !cNorm.includes("16d")) {
+        return -1000;
+      }
+
+      // Descartar si incluye términos alterados (slowed, reverb, sped up, etc.) no presentes en el original
+      for (const term of unwantedTerms) {
+        if (!origLower.includes(term) && cTitle.includes(term)) {
+          return -1000;
+        }
+      }
+
+      let score = 10;
+      // Bonus si incluye "8d audio" o "audio 8d"
+      if (cTitle.includes("8d audio") || cTitle.includes("audio 8d") || cTitle.includes("8d sound")) {
+        score += 30;
+      }
+      // Bonus si incluye las palabras del título original
+      const titleWords = cleanTitle.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+      let matchCount = 0;
+      for (const w of titleWords) {
+        if (cTitle.includes(w)) matchCount++;
+      }
+      if (titleWords.length > 0 && matchCount === titleWords.length) {
+        score += 40;
+      }
+
+      // Bonus si el canal es conocido por 8D puro
+      const artist = String(c.artist || "").toLowerCase();
+      if (artist.includes("8d tunes") || artist.includes("8d music") || artist.includes("8d era") || artist.includes("8d hub")) {
+        score += 25;
+      }
+
+      // Penalizar si tiene remix no solicitado
+      if (!origLower.includes("remix") && cTitle.includes("remix")) {
+        score -= 50;
+      }
+
+      return score;
     }
-    kino.log("8D no encontrada para:", title.slice(0, 60));
+
+    let bestHit = null;
+    let bestScore = 0;
+
+    for (const cand of candidates) {
+      const s = scoreCandidate(cand);
+      if (s > bestScore) {
+        bestScore = s;
+        bestHit = cand;
+      }
+    }
+
+    if (bestHit) {
+      kino.log("8D óptima encontrada (score=" + bestScore + "):", bestHit.id, bestHit.title.slice(0, 60));
+      return bestHit.id;
+    }
+
+    kino.log("8D limpia no encontrada para:", cleanTitle.slice(0, 60));
     return null;
   } catch (e) {
-    kino.log("8D search:", e.code || "error");
+    kino.log("8D search error:", e.code || "error");
     return null;
   }
 }
