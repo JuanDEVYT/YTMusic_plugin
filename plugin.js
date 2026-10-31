@@ -1316,8 +1316,8 @@ async function resolveTrack(p, options, canBrowse, reserve) {
     // oculto tampoco la va a conseguir: se falla en el acto con el motivo real. Solo se prueba el navegador
     // en los demás casos, y si él también falla se devuelve el error ORIGINAL (no el del bot-check).
     const definitive = !!lastPlayability && lastPlayability.status === "UNPLAYABLE";
-    if (e.code !== "not_found" || !canBrowse || definitive) throw e;
-    kino.log("resolveDirect not_found -> navegador oculto");
+    if (!canBrowse || definitive) throw e;
+    kino.log("resolveDirect falló (" + (e.code || "error") + ") -> intentando navegador oculto");
     try {
       stream = await resolveViaBrowser(p.id);
       viaDirect = false;
@@ -1426,13 +1426,40 @@ export async function migrate(input) {
 // =============================================================================================
 
 function renderMusicTile(item, idx, prefix = "tr_") {
-  const isBrowse = item.ref && item.ref.startsWith("b:");
-  const initials = (item.title || "YT").slice(0, 2).toUpperCase();
+  const ref = String(item.ref || "");
+  const m = /^([tba]):([^|@]+)/.exec(ref);
+  const type = m ? m[1] : (ref.startsWith("a:") ? "a" : ref.startsWith("b:") ? "b" : "t");
+  const isArtist = type === "a" || (item.badges && item.badges.includes("Artista"));
+  const isAlbum = type === "b" || (item.badges && (item.badges.includes("Álbum") || item.badges.includes("Lista")));
+  const isTrack = !isArtist && !isAlbum;
+
+  const rawId = item.id || (m ? (type + "." + m[2]) : (type + "." + ref.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32)));
+  const itemId = /^[A-Za-z0-9._~-]{1,128}$/.test(rawId) ? rawId : (type + "." + String(idx));
+  const title = String(item.title || (isArtist ? "Artista" : isAlbum ? "Álbum" : "Canción")).slice(0, 200);
+  const initials = title.slice(0, 2).toUpperCase();
+
+  let subtitle = "";
+  if (isArtist) {
+    subtitle = "Artista" + (item.subscribers ? " · " + item.subscribers : "");
+  } else if (isAlbum) {
+    const kindLabel = (item.badges && item.badges.includes("Lista")) ? "Lista" : "Álbum";
+    subtitle = item.artist ? (item.artist + " · " + kindLabel) : kindLabel;
+  } else {
+    const isVid = item.badges && item.badges.includes("Video");
+    subtitle = item.artist ? (item.artist + (isVid ? " · Video" : " · Canción")) : (isVid ? "Video musical" : "Canción");
+  }
+
+  const trailingIcon = isArtist ? "person" : isAlbum ? "list" : "play";
+
+  const onTapAction = (isArtist || isAlbum)
+    ? { go: { title: { ref: item.ref, kind: "music", id: itemId, title } } }
+    : { go: { play: { ref: item.ref, kind: "music", id: itemId, title } } };
+
   return {
     type: "ListTile",
     key: prefix + idx,
-    title: item.title || "Canción",
-    subtitle: item.artist || (isBrowse ? "Álbum / Playlist" : "Pista de audio"),
+    title,
+    subtitle,
     leading: {
       type: "CircleAvatar",
       image: item.poster || "",
@@ -1441,11 +1468,9 @@ function renderMusicTile(item, idx, prefix = "tr_") {
     },
     trailing: {
       type: "Icon",
-      name: isBrowse ? "list" : "play"
+      name: trailingIcon
     },
-    onTap: isBrowse
-      ? { go: { browse: { ref: item.ref, title: item.title } } }
-      : { go: { play: { ref: item.ref, kind: item.kind || "music", title: item.title } } }
+    onTap: onTapAction
   };
 }
 
@@ -1735,16 +1760,10 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
   if (name === "open" || name === "refresh_screen") {
     kino.log("ytmusic screenEvent: loading charts/trending rows");
     try {
-      let rows = [];
-      try {
-        rows = await loadRows("FEmusic_charts", "tendencias", 12, "", Date.now() + 10000);
-      } catch (eCharts) {
-        kino.log("ytmusic screenEvent: charts error, falling back to explore", eCharts && eCharts.message);
-        rows = await loadRows("FEmusic_explore", "explorar", 12, "", Date.now() + 10000);
-      }
+      const sCharts = await section({ tab: "tendencias" });
       const items = [];
-      for (const r of rows) {
-        for (const it of r.items) {
+      for (const r of sCharts.rows || []) {
+        for (const it of r.items || []) {
           if (it.ref && !items.some((x) => x.ref === it.ref)) {
             items.push(it);
           }
@@ -1754,7 +1773,7 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
       s.trending = items.slice(0, 40);
       s.trendingLoaded = true;
     } catch (e) {
-      kino.log("ytmusic screenEvent: trending load fatal error:", e && e.message ? e.message : e);
+      kino.log("ytmusic screenEvent: trending load error:", e && e.message ? e.message : e);
       s.trendingLoaded = true;
     }
     if (savedCookie()) {
@@ -2010,7 +2029,16 @@ export async function panel(context) {
             type: "Icon",
             name: "play"
           },
-          onTap: { go: { play: { ref: trackRef(item.videoId), kind: "music", title: item.title } } }
+          onTap: {
+            go: {
+              play: {
+                ref: trackRef(item.videoId, item.title),
+                kind: "music",
+                id: "t." + item.videoId,
+                title: item.title
+              }
+            }
+          }
         }))
       } : {
         type: "emptyState",
