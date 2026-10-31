@@ -1420,3 +1420,625 @@ export async function migrate(input) {
   }
   return null;
 }
+
+// =============================================================================================
+// UI SCREEN (apiVersion 14 / enhancements)
+// =============================================================================================
+
+export async function screen({ state, route, device, size, lang }) {
+  const s = state || {};
+  const tab = s.tab || "trending";
+
+  let bodyNode;
+
+  if (tab === "trending") {
+    const list = s.trending || [];
+    if (!s.trendingLoaded) {
+      bodyNode = {
+        type: "SingleChildScrollView",
+        key: "trend_scroll",
+        children: [
+          { type: "Skeleton", key: "skel_trend", variant: "list", rows: 6, padding: 16 }
+        ]
+      };
+    } else if (!list.length) {
+      bodyNode = {
+        type: "emptyState",
+        key: "trend_empty",
+        title: "Sin tendencias disponibles",
+        titleEn: "No trending items",
+        description: "Intenta recargar más tarde.",
+        descriptionEn: "Try reloading later.",
+        icon: "refresh"
+      };
+    } else {
+      bodyNode = {
+        type: "ListView",
+        key: "trend_list",
+        items: list.map((item, idx) => ({
+          type: "ListTile",
+          key: "tr_" + idx,
+          title: item.title,
+          subtitle: item.artist || "YouTube Music",
+          leading: item.poster ? { type: "Image", key: "tr_img_" + idx, url: item.poster, aspect: "1:1" } : undefined,
+          onTap: { go: { play: { ref: item.ref, kind: item.kind || "music", title: item.title } } }
+        }))
+      };
+    }
+  } else if (tab === "search") {
+    const results = s.searchResults || [];
+    bodyNode = {
+      type: "Column",
+      key: "search_col",
+      children: [
+        {
+          type: "Row",
+          key: "search_bar",
+          padding: 12,
+          gap: 8,
+          children: [
+            {
+              type: "TextField",
+              key: "searchQuery",
+              flex: 1,
+              labelText: "Buscar canciones o artistas",
+              labelTextEn: "Search songs or artists",
+              hintText: "Ej. Queen, Dua Lipa, Bad Bunny...",
+              onSubmitted: "do_search"
+            },
+            {
+              type: "ElevatedButton",
+              key: "btn_search",
+              labelText: "Buscar",
+              labelTextEn: "Search",
+              onPressed: "do_search"
+            }
+          ]
+        },
+        s.searching
+          ? { type: "Skeleton", key: "skel_search", variant: "list", rows: 5, padding: 12 }
+          : results.length
+          ? {
+              type: "ListView",
+              key: "search_list",
+              flex: 1,
+              items: results.map((item, idx) => ({
+                type: "ListTile",
+                key: "sr_" + idx,
+                title: item.title,
+                subtitle: item.artist || (item.ref && item.ref.startsWith("b:") ? "Álbum / Lista" : "Pista"),
+                leading: item.poster ? { type: "Image", key: "sr_img_" + idx, url: item.poster, aspect: "1:1" } : undefined,
+                onTap: item.ref && item.ref.startsWith("b:")
+                  ? { go: { browse: { ref: item.ref, title: item.title } } }
+                  : { go: { play: { ref: item.ref, kind: "music", title: item.title } } }
+              }))
+            }
+          : s.searched
+          ? { type: "emptyState", key: "sr_empty", title: "Sin resultados", titleEn: "No results", description: "Prueba con otra palabra", icon: "search" }
+          : { type: "emptyState", key: "sr_init", title: "Escribe algo para buscar", titleEn: "Type to search", icon: "music" }
+      ]
+    };
+  } else if (tab === "ai") {
+    const aiList = s.aiTracks || [];
+    bodyNode = {
+      type: "Column",
+      key: "ai_col",
+      children: [
+        {
+          type: "Card",
+          key: "ai_card",
+          padding: 16,
+          variant: "filled",
+          children: [
+            { type: "Text", key: "ai_t1", text: "Playlist Inteligente con IA", textEn: "AI Smart Playlist", style: "h3" },
+            { type: "Text", key: "ai_desc", text: "Escribe una temática, año o estilo y la IA buscará canciones para tu lista.", textEn: "Type a theme, year or style and AI will curate songs for you.", color: "muted" },
+            {
+              type: "Row",
+              key: "ai_input_row",
+              padding: { top: 8 },
+              gap: 8,
+              children: [
+                {
+                  type: "TextField",
+                  key: "aiPrompt",
+                  flex: 1,
+                  labelText: "¿Qué música te apetece?",
+                  labelTextEn: "What music do you want?",
+                  hintText: "Ej. Rock clásico de los 70 para viajar",
+                  onSubmitted: "generate_ai"
+                },
+                {
+                  type: "ElevatedButton",
+                  key: "btn_ai",
+                  labelText: "Generar",
+                  labelTextEn: "Generate",
+                  icon: "magic",
+                  onPressed: "generate_ai"
+                }
+              ]
+            }
+          ]
+        },
+        s.aiLoading
+          ? { type: "Skeleton", key: "skel_ai", variant: "list", rows: 5, padding: 12 }
+          : aiList.length
+          ? {
+              type: "ListView",
+              key: "ai_list",
+              flex: 1,
+              items: aiList.map((item, idx) => ({
+                type: "ListTile",
+                key: "ai_it_" + idx,
+                title: item.title,
+                subtitle: item.artist || "YouTube Music",
+                leading: item.poster ? { type: "Image", key: "ai_img_" + idx, url: item.poster, aspect: "1:1" } : undefined,
+                onTap: { go: { play: { ref: item.ref, kind: "music", title: item.title } } }
+              }))
+            }
+          : { type: "emptyState", key: "ai_init", title: "Crea tu lista con IA", titleEn: "Create playlist with AI", description: "Ingresa una descripción arriba para empezar.", icon: "magic" }
+      ]
+    };
+  } else if (tab === "library") {
+    const libItems = s.libraryItems || [];
+    const hasSess = !!savedCookie();
+    bodyNode = {
+      type: "Column",
+      key: "lib_col",
+      padding: 16,
+      gap: 12,
+      children: hasSess ? [
+        { type: "Text", key: "lib_t1", text: "Tu Música y Playlists", style: "h3" },
+        ...(libItems.length ? [
+          {
+            type: "ListView",
+            key: "lib_list",
+            flex: 1,
+            items: libItems.map((item, idx) => ({
+              type: "ListTile",
+              key: "lib_it_" + idx,
+              title: item.title,
+              subtitle: item.artist || "Playlist",
+              leading: item.poster ? { type: "Image", key: "lib_img_" + idx, url: item.poster, aspect: "1:1" } : undefined,
+              onTap: item.ref && item.ref.startsWith("b:")
+                ? { go: { browse: { ref: item.ref, title: item.title } } }
+                : { go: { play: { ref: item.ref, kind: "music", title: item.title } } }
+            }))
+          }
+        ] : [
+          { type: "emptyState", key: "lib_empty", title: "Sin listas cargadas", titleEn: "No playlists loaded", icon: "music" }
+        ])
+      ] : [
+        {
+          type: "Card",
+          key: "lib_guest_card",
+          padding: 16,
+          variant: "filled",
+          children: [
+            { type: "Text", key: "guest_t", text: "Modo Invitado", style: "h3" },
+            { type: "Text", key: "guest_sub", text: "Para sincronizar tus 'Me gusta' y tus listas personales de YouTube Music, añade tus cookies en Ajustes del plugin.", color: "muted" }
+          ]
+        }
+      ]
+    };
+  } else {
+    // tab === "account"
+    const hasSess = !!savedCookie();
+    const is8d = kino.config.get("audio8d") === true;
+    const qual = kino.config.get("quality") || "aac";
+    bodyNode = {
+      type: "SingleChildScrollView",
+      key: "acc_scroll",
+      children: [
+        {
+          type: "Column",
+          key: "acc_col",
+          padding: 16,
+          gap: 16,
+          children: [
+            {
+              type: "Card",
+              key: "card_account",
+              padding: 16,
+              children: [
+                { type: "Text", key: "acc_head", text: "Cuenta de YouTube Music", style: "h3" },
+                {
+                  type: "Text",
+                  key: "acc_stat",
+                  text: hasSess ? "Estado: Sesión activa" : "Estado: Invitado (sin sesión)",
+                  color: hasSess ? "primary" : "muted"
+                },
+                ...(hasSess ? [
+                  {
+                    type: "ElevatedButton",
+                    key: "btn_logout",
+                    labelText: "Cerrar sesión",
+                    labelTextEn: "Log out",
+                    onPressed: "logout_session"
+                  }
+                ] : [])
+              ]
+            },
+            {
+              type: "Card",
+              key: "card_audio_settings",
+              padding: 16,
+              children: [
+                { type: "Text", key: "aud_head", text: "Preferencias de Audio", style: "h3" },
+                {
+                  type: "ListTile",
+                  key: "tile_quality",
+                  title: "Formato de reproducción",
+                  subtitle: qual === "opus" ? "Opus (máxima fidelidad)" : "AAC (alta compatibilidad)",
+                  onTap: "toggle_quality_setting"
+                },
+                {
+                  type: "ListTile",
+                  key: "tile_8d",
+                  title: "Audio 8D envolvente",
+                  subtitle: is8d ? "Activado: busca versión 8D automáticamente" : "Desactivado: audio original",
+                  onTap: "toggle_8d_setting"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    };
+  }
+
+  return {
+    type: "Scaffold",
+    key: "ytm_main_scaffold",
+    appBar: {
+      type: "AppBar",
+      key: "ytm_app_bar",
+      title: "YouTube Music",
+      titleEn: "YouTube Music",
+      elevation: 2,
+      actions: [
+        {
+          type: "IconButton",
+          key: "appbar_refresh",
+          icon: "refresh",
+          labelText: "Actualizar",
+          labelTextEn: "Refresh",
+          onPressed: "refresh_screen"
+        }
+      ],
+      bottom: {
+        type: "TabBar",
+        key: "ytm_tab_bar",
+        value: tab,
+        onChanged: "switch_screen_tab",
+        tabs: [
+          { value: "trending", label: "Tendencias", labelEn: "Trending" },
+          { value: "search", label: "Buscador", labelEn: "Search" },
+          { value: "ai", label: "Playlist IA", labelEn: "AI Playlist" },
+          { value: "library", label: "Mi Música", labelEn: "My Music" },
+          { value: "account", label: "Ajustes", labelEn: "Settings" }
+        ]
+      }
+    },
+    body: bodyNode
+  };
+}
+
+export async function screenEvent({ name, arg, value, state, route, device, lang }) {
+  const s = Object.assign({}, state || {});
+
+  if (name === "open" || name === "refresh_screen") {
+    try {
+      const rows = await loadRows("FEmusic_home", "yt", 10, "", Date.now() + 10000);
+      const items = [];
+      for (const r of rows) for (const it of r.items) if (it.ref && !items.some((x) => x.ref === it.ref)) items.push(it);
+      s.trending = items.slice(0, 30);
+      s.trendingLoaded = true;
+    } catch (e) {
+      s.trendingLoaded = true;
+    }
+    if (savedCookie()) {
+      try {
+        const libRows = await libraryRows();
+        const lItems = [];
+        for (const r of libRows) for (const it of r.items) if (it.ref && !lItems.some((x) => x.ref === it.ref)) lItems.push(it);
+        s.libraryItems = lItems;
+      } catch (e) {}
+    }
+    return { state: s };
+  }
+
+  if (name === "switch_screen_tab") {
+    s.tab = value || "trending";
+    return { state: s };
+  }
+
+  if (name === "do_search") {
+    const q = String((s.inputs && s.inputs.searchQuery) || arg || value || "").trim();
+    if (!q) return { toast: "Escribe algo para buscar" };
+    s.searching = true;
+    s.searched = true;
+    try {
+      const results = await search({ q });
+      s.searchResults = results.slice(0, 30);
+    } catch (e) {
+      s.searchResults = [];
+    }
+    s.searching = false;
+    return { state: s };
+  }
+
+  if (name === "generate_ai") {
+    const prompt = String((s.inputs && s.inputs.aiPrompt) || arg || value || "").trim();
+    if (!prompt) return { toast: "Escribe tu idea para la playlist" };
+    if (typeof kino.ai !== "object" || typeof kino.ai.ask !== "function") {
+      return { toast: "Kino AI no está disponible en este dispositivo" };
+    }
+    s.aiLoading = true;
+    try {
+      const system = "You are an expert music curator. Return ONLY a valid JSON array of 6 to 8 song recommendations matching the user request. Each item must be an object with string fields 'title' and 'artist'. Do not include markdown codeblocks or explanations.";
+      const res = await kino.ai.ask({ prompt, system, json: true, maxChars: 1500 });
+      if (!res.ok) {
+        s.aiLoading = false;
+        return { state: s, toast: "No se pudo consultar a la IA" };
+      }
+      let list = [];
+      try {
+        const cleaned = res.text.replace(/```json/gi, "").replace(/```/g, "").trim();
+        const parsed = JSON.parse(cleaned);
+        list = Array.isArray(parsed) ? parsed : (parsed.songs || parsed.tracks || []);
+      } catch (e) {}
+      const tracks = [];
+      for (const song of list.slice(0, 8)) {
+        if (!song || !song.title) continue;
+        const q = song.title + (song.artist ? " " + song.artist : "");
+        try {
+          const found = await search({ q });
+          if (found && found.length) {
+            const track = found.find((x) => x.ref && x.ref.startsWith("t:")) || found[0];
+            if (track && !tracks.some((x) => x.ref === track.ref)) tracks.push(track);
+          }
+        } catch (e) {}
+      }
+      s.aiTracks = tracks;
+    } catch (e) {}
+    s.aiLoading = false;
+    return { state: s };
+  }
+
+  if (name === "toggle_quality_setting") {
+    const cur = kino.config.get("quality") === "opus" ? "aac" : "opus";
+    // config updated via answer
+    return { state: s, config: { quality: cur }, toast: "Formato: " + cur.toUpperCase() };
+  }
+
+  if (name === "toggle_8d_setting") {
+    const cur = kino.config.get("audio8d") === true;
+    // config updated via answer
+    return { state: s, config: { audio8d: !cur }, toast: !cur ? "Audio 8D activado" : "Audio 8D desactivado" };
+  }
+
+  if (name === "logout_session") {
+    return {
+      state: Object.assign({}, s, { libraryItems: [] }),
+      clearSettings: COOKIE_KEYS.slice(),
+      toast: "Sesión cerrada"
+    };
+  }
+
+  return { state: s };
+}
+
+// =============================================================================================
+// PANEL DEL REPRODUCTOR (apiVersion 14 / enhancements)
+// =============================================================================================
+
+async function fetchLyrics(videoId) {
+  try {
+    const n = await safe("lyrics next", () => yt("next", { videoId }), null);
+    if (!n) return null;
+    const tabs = n.contents?.singleColumnMusicWatchNextResultsRenderer?.tabbedRenderer?.watchNextTabbedResultsRenderer?.tabs || [];
+    let browseId = null;
+    for (const t of tabs) {
+      const b = t.tabRenderer?.endpoint?.browseEndpoint?.browseId;
+      if (b && (b.startsWith("MPLY") || /letra|lyrics/i.test(t.tabRenderer?.title?.runs?.[0]?.text || ""))) {
+        browseId = b;
+        break;
+      }
+    }
+    if (!browseId) return null;
+    const b = await safe("lyrics browse", () => yt("browse", { browseId }), null);
+    const shelf = b?.contents?.sectionListRenderer?.contents?.[0]?.musicDescriptionShelfRenderer;
+    if (!shelf) return null;
+    const text = shelf.description?.runs?.map((r) => r.text).join("") || "";
+    const footer = shelf.footer?.runs?.map((r) => r.text).join("") || "";
+    return { text, footer };
+  } catch (e) {
+    return null;
+  }
+}
+
+async function fetchUpNext(videoId) {
+  try {
+    const n = await safe("next queue", () => yt("next", { videoId, playlistId: "RDAMVM" + videoId }), null);
+    if (!n) return [];
+    const tab0 = n.contents?.singleColumnMusicWatchNextResultsRenderer?.tabbedRenderer?.watchNextTabbedResultsRenderer?.tabs?.[0];
+    const queue = tab0?.tabRenderer?.content?.musicQueueRenderer?.content?.playlistPanelRenderer?.contents || [];
+    const list = [];
+    for (const item of queue) {
+      const r = item.playlistPanelVideoRenderer;
+      if (!r || !r.videoId || r.videoId === videoId) continue;
+      const title = r.title?.runs?.[0]?.text || "Canción";
+      const artist = r.shortBylineText?.runs?.map((x) => x.text).join("") || "";
+      const length = r.lengthText?.runs?.[0]?.text || "";
+      const thumbs = r.thumbnail?.thumbnails || [];
+      const thumb = thumbs.length ? thumbs[thumbs.length - 1].url : "";
+      list.push({ videoId: r.videoId, title, artist, length, thumb });
+      if (list.length >= 15) break;
+    }
+    return list;
+  } catch (e) {
+    return [];
+  }
+}
+
+export async function panel(context) {
+  const c = context || {};
+  const currentTab = c.tab || "lyrics";
+  const p = parseRef(c.ref);
+  const videoId = p && p.type === "t" ? p.id : "";
+  const isScreen = (c.features || []).includes("screen");
+
+  if (isScreen) {
+    let rootNode;
+    if (currentTab === "lyrics") {
+      const lyricsData = videoId ? await fetchLyrics(videoId) : null;
+      rootNode = {
+        type: "SingleChildScrollView",
+        key: "p_lyrics_scroll",
+        children: [
+          {
+            type: "Column",
+            key: "p_lyrics_col",
+            padding: 16,
+            gap: 12,
+            children: lyricsData && lyricsData.text ? [
+              { type: "Text", key: "p_ly_head", text: "Letra", style: "h3" },
+              { type: "Text", key: "p_ly_text", text: lyricsData.text, style: "body" },
+              ...(lyricsData.footer ? [{ type: "Text", key: "p_ly_foot", text: lyricsData.footer, style: "caption", color: "muted" }] : [])
+            ] : [
+              { type: "emptyState", key: "p_ly_empty", title: "Sin letra disponible", titleEn: "No lyrics available", icon: "subtitles" }
+            ]
+          }
+        ]
+      };
+    } else if (currentTab === "upnext") {
+      const nextTracks = videoId ? await fetchUpNext(videoId) : [];
+      rootNode = nextTracks.length ? {
+        type: "ListView",
+        key: "p_queue_list",
+        items: nextTracks.map((item, idx) => ({
+          type: "ListTile",
+          key: "pq_" + idx,
+          title: item.title,
+          subtitle: item.artist + (item.length ? " · " + item.length : ""),
+          leading: item.thumb ? { type: "Image", key: "pq_img_" + idx, url: item.thumb, aspect: "1:1" } : undefined,
+          onTap: { go: { play: { ref: trackRef(item.videoId), kind: "music", title: item.title } } }
+        }))
+      } : {
+        type: "emptyState",
+        key: "p_q_empty",
+        title: "Sin canciones sugeridas",
+        titleEn: "No suggested songs",
+        icon: "music"
+      };
+    } else {
+      // audio options
+      const is8d = kino.config.get("audio8d") === true;
+      const qual = kino.config.get("quality") || "aac";
+      rootNode = {
+        type: "Column",
+        key: "p_opt_col",
+        padding: 16,
+        gap: 12,
+        children: [
+          { type: "Text", key: "p_opt_head", text: "Opciones de Sonido", style: "h3" },
+          {
+            type: "Card",
+            key: "p_card_8d",
+            padding: 12,
+            children: [
+              { type: "Text", key: "p_t_8d", text: "Audio 8D envolvente", style: "h4" },
+              { type: "Text", key: "p_s_8d", text: is8d ? "Actualmente activo" : "Desactivado", color: "muted" },
+              { type: "ElevatedButton", key: "btn_p_8d", labelText: is8d ? "Desactivar 8D" : "Activar 8D", onPressed: "toggle_panel_8d" }
+            ]
+          },
+          {
+            type: "Card",
+            key: "p_card_qual",
+            padding: 12,
+            children: [
+              { type: "Text", key: "p_t_q", text: "Formato de Audio", style: "h4" },
+              { type: "Text", key: "p_s_q", text: qual === "opus" ? "Opus (mayor fidelidad)" : "AAC (alta compatibilidad)", color: "muted" },
+              { type: "ElevatedButton", key: "btn_p_q", labelText: qual === "opus" ? "Cambiar a AAC" : "Cambiar a Opus", onPressed: "toggle_panel_quality" }
+            ]
+          }
+        ]
+      };
+    }
+
+    return {
+      format: "screen",
+      title: "YouTube Music",
+      accent: "#FF0050",
+      tabs: [
+        { id: "lyrics", label: "Letras", labelEn: "Lyrics" },
+        { id: "upnext", label: "A continuación", labelEn: "Up next" },
+        { id: "audio", label: "Opciones", labelEn: "Options" }
+      ],
+      tab: currentTab,
+      root: rootNode
+    };
+  }
+
+  // Legacy panel format
+  const elements = [];
+  if (currentTab === "lyrics") {
+    const lyricsData = videoId ? await fetchLyrics(videoId) : null;
+    elements.push({ type: "section", title: "Letra" });
+    if (lyricsData && lyricsData.text) {
+      elements.push({ type: "text", text: lyricsData.text });
+      if (lyricsData.footer) elements.push({ type: "status", text: lyricsData.footer });
+    } else {
+      elements.push({ type: "status", text: "Sin letra disponible" });
+    }
+  } else if (currentTab === "upnext") {
+    elements.push({ type: "section", title: "A continuación" });
+    const nextTracks = videoId ? await fetchUpNext(videoId) : [];
+    if (nextTracks.length) {
+      for (const t of nextTracks.slice(0, 6)) {
+        elements.push({ type: "status", text: t.title + " · " + t.artist });
+      }
+    } else {
+      elements.push({ type: "status", text: "Sin canciones siguientes" });
+    }
+  } else {
+    const is8d = kino.config.get("audio8d") === true;
+    const qual = kino.config.get("quality") || "aac";
+    elements.push({ type: "section", title: "Opciones" });
+    elements.push({ type: "status", text: "Audio 8D: " + (is8d ? "Activo" : "Desactivado") });
+    elements.push({ type: "button", key: "btn_p_8d", label: is8d ? "Desactivar 8D" : "Activar 8D" });
+    elements.push({ type: "status", text: "Formato: " + qual.toUpperCase() });
+    elements.push({ type: "button", key: "btn_p_q", label: "Alternar AAC/Opus" });
+  }
+
+  return {
+    presentation: "panel",
+    title: "YouTube Music",
+    tabs: [
+      { id: "lyrics", label: "Letras", labelEn: "Lyrics" },
+      { id: "upnext", label: "A continuación", labelEn: "Up next" },
+      { id: "audio", label: "Opciones", labelEn: "Options" }
+    ],
+    tab: currentTab,
+    elements
+  };
+}
+
+export async function panelAction(event, context) {
+  const name = typeof event === "string" ? event : (event.name || event.key);
+  if (name === "toggle_panel_8d" || name === "btn_p_8d") {
+    const cur = kino.config.get("audio8d") === true;
+    // config updated via answer
+    return { toast: !cur ? "Audio 8D activado" : "Audio 8D desactivado", config: { audio8d: !cur } };
+  }
+  if (name === "toggle_panel_quality" || name === "btn_p_q") {
+    const cur = kino.config.get("quality") === "opus" ? "aac" : "opus";
+    // config updated via answer
+    return { toast: "Formato: " + cur.toUpperCase(), config: { quality: cur } };
+  }
+  return null;
+}
+
+export async function playerEvent(event, context) {
+  return null;
+}
