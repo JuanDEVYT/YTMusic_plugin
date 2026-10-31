@@ -827,7 +827,26 @@ export async function episodes(ref) {
   const p = parseRef(ref);
   if (!p) throw kino.error("not_found", "ref no válido");
   // Una pista suelta es un álbum de una sola pista.
-  if (p.type === "t") return { episodes: [{ season: 1, number: 1, ref: String(ref), title: p.title || undefined }] };
+  if (p.type === "t") {
+    const trackTitle = p.title || "Canción";
+    const trackCover = "https://i.ytimg.com/vi/" + p.id + "/hqdefault.jpg";
+    return {
+      series: {
+        title: trackTitle,
+        poster: trackCover,
+        backdrop: trackCover
+      },
+      episodes: [
+        {
+          season: 1,
+          number: 1,
+          ref: String(ref),
+          title: trackTitle,
+          still: trackCover
+        }
+      ]
+    };
+  }
   const deadline = Date.now() + 14000;
   if (p.type === "a") return artistEpisodes(p.id, deadline);
 
@@ -1573,203 +1592,352 @@ export async function screen({ state, route, device, size, lang }) {
   let bodyNode;
 
   if (tab === "trending") {
-    const rawList = s.trending || [];
+    const rails = s.rails || [];
     const filter = s.trendFilter || "all";
-    const list = rawList.filter((it) => {
-      if (filter === "all") return true;
-      const meta = parseItemType(it.ref, it.badges);
-      if (filter === "songs") return meta.isTrack;
-      if (filter === "artists") return meta.isArtist;
-      if (filter === "albums") return meta.isAlbum;
-      return true;
-    });
+    const featuredHero = s.heroItem || (rails[0]?.items?.[0]);
 
-    bodyNode = {
-      type: "Column",
-      key: "trend_col",
+    const children = [];
+
+    // Hero destacado en la cabecera
+    if (featuredHero) {
+      children.push({
+        type: "heroCard",
+        key: "hero_trend",
+        title: "Tendencias Musicales",
+        text: featuredHero.title ? ("Destacado: " + featuredHero.title) : "Lo más escuchado en YouTube Music",
+        image: featuredHero.poster || "https://i.ytimg.com/vi/cYT325Fe9zU/hqdefault.jpg"
+      });
+    }
+
+    // Filtros de categoría rápida
+    children.push({
+      type: "Card",
+      key: "trend_filter_card",
+      padding: 8,
+      variant: "outlined",
       children: [
         {
+          type: "Chips",
+          key: "trend_filter",
+          value: filter,
+          onChange: "filter_trending",
+          options: [
+            { value: "all", label: "🔥 Todo" },
+            { value: "songs", label: "🎵 Canciones" },
+            { value: "artists", label: "👑 Artistas" },
+            { value: "albums", label: "💿 Álbumes y Listas" }
+          ]
+        }
+      ]
+    });
+
+    if (!s.trendingLoaded) {
+      children.push({ type: "Skeleton", key: "skel_trend", variant: "list", rows: 8, padding: 12 });
+    } else if (filter === "all") {
+      // Vista completa con carruseles horizontales nativos (titleRail)
+      rails.forEach((rail, idx) => {
+        if (rail.items && rail.items.length) {
+          children.push({
+            type: "titleRail",
+            key: "rail_" + idx,
+            title: rail.title,
+            items: rail.items
+          });
+        }
+      });
+    } else {
+      // Filtrar items según la selección
+      const filteredItems = [];
+      const seen = new Set();
+      for (const r of rails) {
+        for (const it of r.items || []) {
+          if (!it.ref || seen.has(it.ref)) continue;
+          seen.add(it.ref);
+          const meta = parseItemType(it.ref, it.badges);
+          if (filter === "songs" && meta.isTrack) filteredItems.push(it);
+          if (filter === "artists" && meta.isArtist) filteredItems.push(it);
+          if (filter === "albums" && meta.isAlbum) filteredItems.push(it);
+        }
+      }
+
+      if (filteredItems.length) {
+        children.push({
+          type: "titleRail",
+          key: "rail_filtered",
+          title: filter === "songs" ? "🎵 Canciones destacadas" : filter === "artists" ? "👑 Artistas principales" : "💿 Álbumes y Listas",
+          items: filteredItems.slice(0, 30)
+        });
+        // También listado detallado
+        children.push({
           type: "Card",
-          key: "trend_filter_card",
+          key: "filtered_list_card",
           padding: 8,
           variant: "outlined",
-          children: [
-            {
-              type: "Chips",
-              key: "trend_filter",
-              value: filter,
-              onChange: "filter_trending",
-              options: [
-                { value: "all", label: "Todo" },
-                { value: "songs", label: "Canciones" },
-                { value: "artists", label: "Artistas" },
-                { value: "albums", label: "Listas y Álbumes" }
-              ]
-            }
-          ]
-        },
-        !s.trendingLoaded
-          ? { type: "Skeleton", key: "skel_trend", variant: "list", rows: 8, padding: 12 }
-          : list.length
-          ? {
-              type: "ListView",
-              key: "trend_list",
-              flex: 1,
-              items: list.map((item, idx) => renderMusicTile(item, idx, "tr_"))
-            }
-          : {
-              type: "emptyState",
-              key: "trend_empty",
-              title: "Sin resultados en esta categoría",
-              titleEn: "No items in this category",
-              text: "Selecciona otra categoría arriba o pulsa actualizar.",
-              icon: "refresh"
-            }
+          children: filteredItems.slice(0, 20).map((it, idx) => renderMusicTile(it, idx, "flt_"))
+        });
+      } else {
+        children.push({
+          type: "emptyState",
+          key: "trend_empty",
+          title: "Sin resultados en esta categoría",
+          titleEn: "No items in this category",
+          text: "Selecciona otra categoría arriba o pulsa actualizar.",
+          icon: "refresh"
+        });
+      }
+    }
+
+    bodyNode = {
+      type: "SingleChildScrollView",
+      key: "trend_scroll",
+      children: [
+        {
+          type: "Column",
+          key: "trend_col",
+          gap: 16,
+          padding: 12,
+          children
+        }
       ]
     };
   } else if (tab === "search") {
     const rawResults = s.searchResults || [];
     const filter = s.searchFilter || "all";
-    const results = rawResults.filter((it) => {
-      if (filter === "all") return true;
-      const meta = parseItemType(it.ref, it.badges);
-      if (filter === "songs") return meta.isTrack;
-      if (filter === "artists") return meta.isArtist;
-      if (filter === "albums") return meta.isAlbum;
-      return true;
-    });
+    const tracks = [];
+    const others = [];
 
-    bodyNode = {
-      type: "Column",
-      key: "search_col",
-      children: [
-        {
+    for (const it of rawResults) {
+      const meta = parseItemType(it.ref, it.badges);
+      if (meta.isTrack) tracks.push(it);
+      else others.push(it);
+    }
+
+    const children = [
+      {
+        type: "Card",
+        key: "search_card",
+        padding: 12,
+        variant: "outlined",
+        children: [
+          {
+            type: "TextField",
+            key: "searchQuery",
+            kind: "search",
+            labelText: "Buscar en YouTube Music",
+            labelTextEn: "Search YouTube Music",
+            hintText: "Canción, artista, álbum o playlist...",
+            hintTextEn: "Song, artist, album or playlist...",
+            onSubmit: "do_search",
+            trailingIcon: "search",
+            trailingLabel: "Buscar",
+            trailingLabelEn: "Search",
+            onTrailingTap: "do_search"
+          },
+          {
+            type: "Text",
+            key: "sr_explore_title",
+            text: "Explorar géneros a un toque:",
+            style: "caption",
+            color: "muted"
+          },
+          {
+            type: "Chips",
+            key: "search_genre_chips",
+            onChange: "quick_search_chip",
+            options: [
+              { value: "Top Éxitos Mundiales", label: "🔥 Top Hits" },
+              { value: "Reggaeton 2024", label: "🌴 Reggaetón" },
+              { value: "Rock Clásico", label: "🎸 Rock" },
+              { value: "Pop en Español", label: "🎙️ Pop Latino" },
+              { value: "Electrónica Dance", label: "🎧 Electrónica" },
+              { value: "Salsa y Bachata", label: "🎺 Salsa & Tropical" },
+              { value: "Lo-Fi Beats Chill", label: "☕ Lo-Fi Relax" }
+            ]
+          }
+        ]
+      }
+    ];
+
+    if (s.searching) {
+      children.push({ type: "Skeleton", key: "skel_search", variant: "list", rows: 6, padding: 12 });
+    } else if (rawResults.length) {
+      // Resultados encontrados con organización profesional
+      if (others.length) {
+        children.push({
+          type: "titleRail",
+          key: "sr_rail_others",
+          title: "Artistas y Álbumes encontrados",
+          items: others.slice(0, 20)
+        });
+      }
+
+      if (tracks.length) {
+        children.push({
+          type: "titleRail",
+          key: "sr_rail_tracks",
+          title: "Canciones destacadas",
+          items: tracks.slice(0, 20)
+        });
+
+        // Lista de reproducción directa con información enriquecida
+        children.push({
           type: "Card",
-          key: "search_card",
-          padding: 12,
+          key: "sr_tracks_card",
+          padding: 8,
           variant: "outlined",
           children: [
-            {
-              type: "TextField",
-              key: "searchQuery",
-              kind: "search",
-              labelText: "Buscar en YouTube Music",
-              labelTextEn: "Search YouTube Music",
-              hintText: "Canción, artista, álbum o playlist...",
-              hintTextEn: "Song, artist, album or playlist...",
-              onSubmit: "do_search",
-              trailingIcon: "search",
-              trailingLabel: "Buscar",
-              trailingLabelEn: "Search",
-              onTrailingTap: "do_search"
-            },
-            {
-              type: "Chips",
-              key: "search_filter",
-              value: filter,
-              onChange: "filter_search",
-              options: [
-                { value: "all", label: "Todo" },
-                { value: "songs", label: "Canciones" },
-                { value: "artists", label: "Artistas" },
-                { value: "albums", label: "Álbumes" }
-              ]
-            }
+            { type: "Text", key: "sr_tracklist_head", text: "Lista de Canciones", style: "h4" },
+            ...tracks.slice(0, 15).map((item, idx) => renderMusicTile(item, idx, "sr_t_"))
           ]
-        },
-        s.searching
-          ? { type: "Skeleton", key: "skel_search", variant: "list", rows: 6, padding: 12 }
-          : results.length
-          ? {
-              type: "ListView",
-              key: "search_list",
-              flex: 1,
-              items: results.map((item, idx) => renderMusicTile(item, idx, "sr_"))
-            }
-          : s.searched
-          ? {
-              type: "emptyState",
-              key: "sr_empty",
-              title: "Sin resultados para \"" + (s.lastQuery || "") + "\"",
-              titleEn: "No results",
-              text: "Prueba con otra palabra o selecciona el filtro \"Todo\".",
-              icon: "search"
-            }
-          : {
-              type: "emptyState",
-              key: "sr_init",
-              title: "Buscador de YouTube Music",
-              titleEn: "YouTube Music Search",
-              text: "Escribe cualquier canción, artista o playlist y pulsa Buscar.",
-              icon: "music"
-            }
+        });
+      }
+    } else if (s.searched) {
+      children.push({
+        type: "emptyState",
+        key: "sr_empty",
+        title: "Sin resultados para \"" + (s.lastQuery || "") + "\"",
+        titleEn: "No results",
+        text: "Prueba con otra palabra o selecciona uno de los géneros de arriba.",
+        icon: "search"
+      });
+    } else {
+      // Pantalla inicial antes de buscar: sugerencias atractivas
+      const recRails = (s.rails || []).slice(0, 2);
+      if (recRails.length) {
+        recRails.forEach((r, idx) => {
+          if (r.items && r.items.length) {
+            children.push({
+              type: "titleRail",
+              key: "sr_rec_rail_" + idx,
+              title: "Recomendado: " + r.title,
+              items: r.items.slice(0, 15)
+            });
+          }
+        });
+      } else {
+        children.push({
+          type: "emptyState",
+          key: "sr_init",
+          title: "Buscador de YouTube Music",
+          titleEn: "YouTube Music Search",
+          text: "Escribe cualquier canción, artista o playlist y pulsa Buscar.",
+          icon: "music"
+        });
+      }
+    }
+
+    bodyNode = {
+      type: "SingleChildScrollView",
+      key: "search_scroll",
+      children: [
+        {
+          type: "Column",
+          key: "search_col",
+          gap: 16,
+          padding: 12,
+          children
+        }
       ]
     };
   } else if (tab === "ai") {
     const aiList = s.aiTracks || [];
+    const children = [
+      {
+        type: "heroCard",
+        key: "hero_ai",
+        title: "Playlist Inteligente con IA",
+        text: "Describe cualquier momento o estilo musical y la IA creará una selección real y personalizada.",
+        image: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=1200&q=80"
+      },
+      {
+        type: "Card",
+        key: "ai_card",
+        padding: 14,
+        variant: "filled",
+        children: [
+          { type: "Text", key: "ai_t1", text: "¿Qué te apetece escuchar?", style: "h3" },
+          { type: "Text", key: "ai_desc", text: "Toca una idea rápida o escribe tu propia descripción:", color: "muted" },
+          {
+            type: "Chips",
+            key: "ai_quick_chips",
+            onChange: "quick_ai_prompt",
+            options: [
+              { value: "Rock clásico legendario de los 70 y 80", label: "🎸 Rock Clásico" },
+              { value: "Éxitos de reggaetón y pop latino 2024", label: "🔥 Pop & Urbano" },
+              { value: "Lo-Fi relajante y chill para estudiar concentrado", label: "🎧 Lo-Fi Chill" },
+              { value: "Música electrónica energizante para entrenar en el gym", label: "⚡ Gym & Workout" },
+              { value: "Synthwave y retrowave de noche en la ciudad", label: "🚗 Synthwave 80s" }
+            ]
+          },
+          {
+            type: "TextField",
+            key: "aiPrompt",
+            labelText: "Escribe tu idea temática",
+            labelTextEn: "What music do you want today?",
+            hintText: "Ej. Baladas acústicas melancólicas para un día lluvioso",
+            hintTextEn: "E.g. 80s synthwave for driving",
+            onSubmit: "generate_ai",
+            trailingIcon: "magic",
+            trailingLabel: "Crear",
+            trailingLabelEn: "Create",
+            onTrailingTap: "generate_ai"
+          },
+          {
+            type: "ElevatedButton",
+            key: "btn_ai_exec",
+            labelText: "Generar Playlist con IA",
+            labelTextEn: "Generate AI Playlist",
+            icon: "magic",
+            onPressed: "generate_ai"
+          }
+        ]
+      }
+    ];
+
+    if (s.aiLoading) {
+      children.push({ type: "Skeleton", key: "skel_ai", variant: "list", rows: 6, padding: 12 });
+    } else if (aiList.length) {
+      // Carrusel visual de los temas generados
+      children.push({
+        type: "titleRail",
+        key: "ai_rail_results",
+        title: "✨ Selección Creada por la IA",
+        items: aiList
+      });
+
+      // Lista interactiva con botón de reproducción
+      children.push({
+        type: "Card",
+        key: "ai_list_card",
+        padding: 8,
+        variant: "outlined",
+        children: [
+          { type: "Text", key: "ai_list_title", text: "Canciones en tu Lista", style: "h4" },
+          ...aiList.map((item, idx) => renderMusicTile(item, idx, "ai_it_"))
+        ]
+      });
+    } else {
+      children.push({
+        type: "emptyState",
+        key: "ai_init",
+        title: "Tu DJ Personal con Inteligencia Artificial",
+        titleEn: "Your AI Playlist Creator",
+        text: "Toca una de las sugerencias rápidas de arriba o escribe cualquier descripción.",
+        icon: "magic"
+      });
+    }
+
     bodyNode = {
-      type: "Column",
-      key: "ai_col",
+      type: "SingleChildScrollView",
+      key: "ai_scroll",
       children: [
         {
-          type: "Card",
-          key: "ai_card",
-          padding: 14,
-          variant: "filled",
-          children: [
-            { type: "Text", key: "ai_t1", text: "Playlist Inteligente con IA", textEn: "AI Smart Playlist", style: "h3" },
-            { type: "Text", key: "ai_desc", text: "Describe cualquier ocasión o temática y la IA creará una lista con canciones reales.", color: "muted" },
-            {
-              type: "Chips",
-              key: "ai_quick_chips",
-              onChange: "quick_ai_prompt",
-              options: [
-                { value: "Rock clásico de los 70 y 80", label: "🎸 Rock Clásico" },
-                { value: "Pop latino y urbano 2024", label: "🔥 Pop & Urbano" },
-                { value: "Lo-Fi relajante para estudiar", label: "🎧 Lo-Fi Chill" },
-                { value: "Música motivacional para entrenar", label: "⚡ Gym & Workout" }
-              ]
-            },
-            {
-              type: "TextField",
-              key: "aiPrompt",
-              labelText: "¿Qué música te apetece hoy?",
-              labelTextEn: "What music do you want today?",
-              hintText: "Ej. Synthwave retro de los 80 para conducir",
-              hintTextEn: "E.g. 80s synthwave for driving",
-              onSubmit: "generate_ai",
-              trailingIcon: "magic",
-              trailingLabel: "Crear",
-              trailingLabelEn: "Create",
-              onTrailingTap: "generate_ai"
-            },
-            {
-              type: "ElevatedButton",
-              key: "btn_ai_exec",
-              labelText: "Generar Playlist con IA",
-              labelTextEn: "Generate AI Playlist",
-              icon: "magic",
-              onPressed: "generate_ai"
-            }
-          ]
-        },
-        s.aiLoading
-          ? { type: "Skeleton", key: "skel_ai", variant: "list", rows: 6, padding: 12 }
-          : aiList.length
-          ? {
-              type: "ListView",
-              key: "ai_list",
-              flex: 1,
-              items: aiList.map((item, idx) => renderMusicTile(item, idx, "ai_it_"))
-            }
-          : {
-              type: "emptyState",
-              key: "ai_init",
-              title: "Tu creador de playlists con IA",
-              titleEn: "Your AI Playlist Creator",
-              text: "Selecciona una idea rápida arriba o escribe lo que quieras.",
-              icon: "magic"
-            }
+          type: "Column",
+          key: "ai_col",
+          gap: 16,
+          padding: 12,
+          children
+        }
       ]
     };
   } else if (tab === "library") {
@@ -1778,68 +1946,88 @@ export async function screen({ state, route, device, size, lang }) {
     const hasSess = !!savedCookie();
 
     if (hasSess) {
-      const libItems = rawLib.filter((it) => {
-        if (filter === "all") return true;
+      const tracks = [];
+      const others = [];
+      for (const it of rawLib) {
         const meta = parseItemType(it.ref, it.badges);
-        if (filter === "songs") return meta.isTrack;
-        if (filter === "artists") return meta.isArtist;
-        if (filter === "albums") return meta.isAlbum;
-        return true;
-      });
+        if (meta.isTrack) tracks.push(it);
+        else others.push(it);
+      }
 
-      bodyNode = {
-        type: "Column",
-        key: "lib_col",
-        children: [
-          {
+      const children = [
+        {
+          type: "Card",
+          key: "lib_user_card",
+          padding: 14,
+          variant: "outlined",
+          children: [
+            {
+              type: "ListTile",
+              key: "lib_user_tile",
+              title: "Mi Biblioteca Sincronizada",
+              subtitle: "Conectado a tu cuenta oficial de YouTube Music",
+              leading: { type: "CircleAvatar", radius: 24, text: "YT" },
+              trailing: { type: "Icon", name: "settings" },
+              onTap: "switch_screen_tab_account"
+            }
+          ]
+        }
+      ];
+
+      if (!s.libraryLoaded) {
+        children.push({ type: "Skeleton", key: "skel_lib", variant: "list", rows: 8, padding: 12 });
+      } else if (rawLib.length) {
+        if (others.length) {
+          children.push({
+            type: "titleRail",
+            key: "lib_rail_playlists",
+            title: "Tus Listas y Álbumes Guardados",
+            items: others
+          });
+        }
+        if (tracks.length) {
+          children.push({
+            type: "titleRail",
+            key: "lib_rail_tracks",
+            title: "Canciones que te gustan (Me gusta)",
+            items: tracks.slice(0, 20)
+          });
+          children.push({
             type: "Card",
-            key: "lib_user_card",
-            padding: 12,
+            key: "lib_tracks_card",
+            padding: 8,
             variant: "outlined",
             children: [
-              {
-                type: "ListTile",
-                key: "lib_user_tile",
-                title: "Cuenta vinculada",
-                subtitle: "Sincronizado con tu biblioteca de YouTube Music",
-                leading: { type: "CircleAvatar", radius: 24, text: "YT" },
-                trailing: { type: "Icon", name: "settings" },
-                onTap: "switch_screen_tab_account"
-              },
-              {
-                type: "Chips",
-                key: "lib_filter",
-                value: filter,
-                onChange: "filter_library",
-                options: [
-                  { value: "all", label: "Todo" },
-                  { value: "songs", label: "Canciones" },
-                  { value: "artists", label: "Artistas" },
-                  { value: "albums", label: "Listas y Álbumes" }
-                ]
-              }
+              { type: "Text", key: "lib_t_head", text: "Tus Temas Favoritos", style: "h4" },
+              ...tracks.slice(0, 15).map((item, idx) => renderMusicTile(item, idx, "lib_t_"))
             ]
-          },
-          !s.libraryLoaded
-            ? { type: "Skeleton", key: "skel_lib", variant: "list", rows: 8, padding: 12 }
-            : libItems.length
-            ? {
-                type: "ListView",
-                key: "lib_list",
-                flex: 1,
-                items: libItems.map((item, idx) => renderMusicTile(item, idx, "lib_it_"))
-              }
-            : {
-                type: "emptyState",
-                key: "lib_empty",
-                title: "Sin elementos en esta categoría",
-                text: "Tus listas y canciones guardadas de YouTube Music aparecerán aquí.",
-                icon: "music"
-              }
+          });
+        }
+      } else {
+        children.push({
+          type: "emptyState",
+          key: "lib_empty",
+          title: "Tu biblioteca está vacía",
+          text: "Tus listas y canciones guardadas de YouTube Music aparecerán aquí.",
+          icon: "music"
+        });
+      }
+
+      bodyNode = {
+        type: "SingleChildScrollView",
+        key: "lib_scroll",
+        children: [
+          {
+            type: "Column",
+            key: "lib_col",
+            gap: 16,
+            padding: 12,
+            children
+          }
         ]
       };
     } else {
-      // Guest mode with step-by-step login guide & direct cookie paste form
+      // Modo Invitado con diseño interactivo, explicaciones visuales y pegado directo en 1 paso
       bodyNode = {
         type: "SingleChildScrollView",
         key: "lib_guest_scroll",
@@ -1863,22 +2051,22 @@ export async function screen({ state, route, device, size, lang }) {
                 padding: 16,
                 variant: "outlined",
                 children: [
-                  { type: "Text", key: "g_t1", text: "Guía: ¿Cómo extraer tus cookies?", style: "h3" },
-                  { type: "Text", key: "g_sub", text: "Elige el método que te resulte más cómodo para vincular tu cuenta:", color: "muted" },
+                  { type: "Text", key: "g_t1", text: "Guía Rápida: Cómo extraer tus cookies", style: "h3" },
+                  { type: "Text", key: "g_sub", text: "Elige el método según el dispositivo que estés usando:", color: "muted" },
                   { type: "Divider", key: "g_div1" },
-                  { type: "Text", key: "g_m1_title", text: "📱 Método 1: Desde tu Celular (100% Android)", style: "h4" },
-                  { type: "Text", key: "g_m1_1", text: "1. Instala Kiwi Browser desde la Google Play Store (soporta extensiones de Chrome)." },
-                  { type: "Text", key: "g_m1_2", text: "2. En Kiwi, entra a la Chrome Web Store e instala la extensión Cookie-Editor." },
+                  { type: "Text", key: "g_m1_title", text: "📱 Método 1: En tu celular Android (100% móvil)", style: "h4" },
+                  { type: "Text", key: "g_m1_1", text: "1. Instala Kiwi Browser desde la Google Play Store." },
+                  { type: "Text", key: "g_m1_2", text: "2. En Kiwi, abre la Chrome Web Store e instala la extensión Cookie-Editor." },
                   { type: "Text", key: "g_m1_3", text: "3. Entra a music.youtube.com e inicia sesión con tu cuenta de Google." },
-                  { type: "Text", key: "g_m1_4", text: "4. Toca los 3 puntos de Kiwi -> Cookie-Editor -> Export -> Export as Header Value." },
-                  { type: "Text", key: "g_m1_5", text: "5. Pega el texto en el recuadro de abajo y pulsa «Vincular cuenta»." },
+                  { type: "Text", key: "g_m1_4", text: "4. Toca los tres puntos (⋮) de Kiwi -> Cookie-Editor -> Export -> Export as Header Value." },
+                  { type: "Text", key: "g_m1_5", text: "5. Pega el texto en la caja de abajo y pulsa Vincular." },
                   { type: "Divider", key: "g_div2" },
-                  { type: "Text", key: "g_m2_title", text: "💻 Método 2: Desde una PC (Fácil y rápido)", style: "h4" },
+                  { type: "Text", key: "g_m2_title", text: "💻 Método 2: Desde una PC (Fácil en 1 minuto)", style: "h4" },
                   { type: "Text", key: "g_m2_1", text: "1. Abre music.youtube.com en Chrome o Edge con tu cuenta de Google." },
-                  { type: "Text", key: "g_m2_2", text: "2. Presiona F12 (Herramientas de Desarrollador) -> pestaña Red (Network)." },
+                  { type: "Text", key: "g_m2_2", text: "2. Presiona F12 (Herramientas de Desarrollador) -> ve a la pestaña Red (Network)." },
                   { type: "Text", key: "g_m2_3", text: "3. Recarga la página y haz clic en cualquier petición (ej. browse o next)." },
-                  { type: "Text", key: "g_m2_4", text: "4. En «Encabezados de solicitud» (Request Headers), copia el valor de «cookie:»." },
-                  { type: "Text", key: "g_m2_5", text: "5. Envíatelo a tu celular (por WhatsApp o Telegram) y pégalo abajo." }
+                  { type: "Text", key: "g_m2_4", text: "4. En Encabezados de solicitud, copia todo el valor que sale en «cookie:»." },
+                  { type: "Text", key: "g_m2_5", text: "5. Envíatelo a tu móvil por WhatsApp o Telegram y pégalo abajo." }
                 ]
               },
               {
@@ -1887,19 +2075,19 @@ export async function screen({ state, route, device, size, lang }) {
                 padding: 16,
                 variant: "filled",
                 children: [
-                  { type: "Text", key: "p_title", text: "Vincular Cuenta Directamente", style: "h3" },
-                  { type: "Text", key: "p_desc", text: "Pega aquí todo el texto de tus cookies. La app se encarga de formatearlas y guardarlas en un solo paso:", color: "muted" },
+                  { type: "Text", key: "p_title", text: "Vincular Cuenta en 1 Solo Paso", style: "h3" },
+                  { type: "Text", key: "p_desc", text: "Pega aquí todo el texto de tus cookies. El plugin lo analiza, divide y guarda automáticamente:", color: "muted" },
                   {
                     type: "TextField",
                     key: "rawCookiesInput",
-                    labelText: "Cookies de YouTube Music",
-                    hintText: "Ej. SAPISID=...; __Secure-3PAPISID=...; o exportación de Cookie-Editor",
+                    labelText: "Pegar Cookies Aquí",
+                    hintText: "Ej. SAPISID=...; __Secure-3PAPISID=...; (o texto de Cookie-Editor)",
                     maxLines: 4
                   },
                   {
                     type: "ElevatedButton",
                     key: "btn_save_cookies",
-                    labelText: "Vincular cuenta con estas cookies",
+                    labelText: "Vincular Cuenta Ahora",
                     icon: "check",
                     onPressed: "save_cookies"
                   }
@@ -1935,7 +2123,7 @@ export async function screen({ state, route, device, size, lang }) {
                 {
                   type: "Text",
                   key: "acc_stat",
-                  text: hasSess ? "Estado: Sesión activa con cuenta vinculada" : "Estado: Modo Invitado (sin sesión)",
+                  text: hasSess ? "Estado: Sesión activa y sincronizada" : "Estado: Modo Invitado (sin sesión)",
                   color: hasSess ? "primary" : "muted"
                 },
                 ...(hasSess ? [
@@ -1963,7 +2151,7 @@ export async function screen({ state, route, device, size, lang }) {
               key: "card_audio_settings",
               padding: 16,
               children: [
-                { type: "Text", key: "aud_head", text: "Preferencias de Sonido", style: "h3" },
+                { type: "Text", key: "aud_head", text: "Preferencias de Audio", style: "h3" },
                 {
                   type: "ListTile",
                   key: "tile_quality",
@@ -1976,7 +2164,7 @@ export async function screen({ state, route, device, size, lang }) {
                   type: "ListTile",
                   key: "tile_8d",
                   title: "Audio 8D envolvente",
-                  subtitle: is8d ? "Activado: busca versión 8D automáticamente" : "Desactivado: audio original",
+                  subtitle: is8d ? "Activado: busca versiones binaurales 8D puras" : "Desactivado: audio original",
                   trailing: { type: "Icon", name: "bolt" },
                   onTap: "toggle_8d_setting"
                 }
@@ -1989,7 +2177,7 @@ export async function screen({ state, route, device, size, lang }) {
               variant: "outlined",
               children: [
                 { type: "Text", key: "ab_title", text: "Sobre YouTube Music para Kino", style: "h4" },
-                { type: "Text", key: "ab_desc", text: "Versión 0.5.7 · Incluye miniapp nativa declarativa con buscador instantáneo, listas con IA, panel con letras sincronizadas y reproducción en alta fidelidad.", color: "muted" }
+                { type: "Text", key: "ab_desc", text: "Versión 0.5.9 · Experiencia premium nativa con carruseles horizontales, mini-reproductor, generador de listas con IA, panel de letras sincronizadas y filtros avanzados de audio.", color: "muted" }
               ]
             }
           ]
@@ -2023,7 +2211,7 @@ export async function screen({ state, route, device, size, lang }) {
         value: tab,
         onChanged: "switch_screen_tab",
         tabs: [
-          { value: "trending", label: "Tendencias", labelEn: "Trending" },
+          { value: "trending", label: "Explorar", labelEn: "Explore" },
           { value: "search", label: "Buscador", labelEn: "Search" },
           { value: "ai", label: "Playlist IA", labelEn: "AI Playlist" },
           { value: "library", label: "Mi Música", labelEn: "My Music" },
@@ -2040,24 +2228,32 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
   const s = Object.assign({}, state || {});
 
   if (name === "open" || name === "refresh_screen") {
-    kino.log("ytmusic screenEvent: loading charts/trending rows");
+    kino.log("ytmusic screenEvent: loading charts and home rows");
     try {
-      const sCharts = await section({ tab: "tendencias" });
-      const items = [];
-      for (const r of sCharts.rows || []) {
-        for (const it of r.items || []) {
-          if (it.ref && !items.some((x) => x.ref === it.ref)) {
-            items.push(it);
-          }
-        }
+      const [homeRows, sectionData] = await Promise.all([
+        home().catch(() => []),
+        section({ tab: "tendencias" }).catch(() => ({ rows: [] }))
+      ]);
+
+      const rails = [];
+      const seenRails = new Set();
+      for (const r of [...homeRows, ...(sectionData.rows || [])]) {
+        if (!r || !r.items || !r.items.length) continue;
+        const title = r.title || "Música destacada";
+        if (seenRails.has(title)) continue;
+        seenRails.add(title);
+        rails.push({ title, items: r.items.slice(0, 25) });
       }
-      kino.log("ytmusic screenEvent: trending loaded count:", items.length);
-      s.trending = items.slice(0, 50);
+
+      s.rails = rails;
+      s.heroItem = rails[0]?.items?.[0] || null;
       s.trendingLoaded = true;
+      kino.log("ytmusic screenEvent: rails loaded count:", rails.length);
     } catch (e) {
-      kino.log("ytmusic screenEvent: trending load error:", e && e.message ? e.message : e);
+      kino.log("ytmusic screenEvent: error loading trending:", e && e.message);
       s.trendingLoaded = true;
     }
+
     if (savedCookie()) {
       try {
         const libRows = await libraryRows();
@@ -2069,11 +2265,10 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
             }
           }
         }
-        kino.log("ytmusic screenEvent: library loaded count:", lItems.length);
         s.libraryItems = lItems;
         s.libraryLoaded = true;
       } catch (e) {
-        kino.log("ytmusic screenEvent: library load error:", e && e.message ? e.message : e);
+        kino.log("ytmusic screenEvent: error loading library:", e && e.message);
         s.libraryLoaded = true;
       }
     } else {
@@ -2083,7 +2278,6 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
   }
 
   if (name === "switch_screen_tab") {
-    kino.log("ytmusic screenEvent: switch_screen_tab to:", value);
     s.tab = value || "trending";
     return { state: s };
   }
@@ -2113,12 +2307,21 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     return { state: s };
   }
 
+  if (name === "quick_search_chip") {
+    const q = String(value || "").trim();
+    if (q) {
+      if (!s.inputs) s.inputs = {};
+      s.inputs.searchQuery = q;
+      return screenEvent({ name: "do_search", value: q, state: s, route, device, lang });
+    }
+    return { state: s };
+  }
+
   if (name === "quick_ai_prompt") {
     const prompt = String(value || "").trim();
     if (prompt) {
       if (!s.inputs) s.inputs = {};
       s.inputs.aiPrompt = prompt;
-      // Auto-trigger generation for instant gratification
       return screenEvent({ name: "generate_ai", value: prompt, state: s, route, device, lang });
     }
     return { state: s };
@@ -2128,7 +2331,6 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     let raw = String(
       value || arg || (s.inputs && (s.inputs.rawCookiesInput || s.inputs.cookies)) || ""
     ).trim();
-    kino.log("ytmusic screenEvent: save_cookies received length:", raw.length);
     if (!raw) {
       return { toast: "Pega tus cookies antes de vincular" };
     }
@@ -2153,7 +2355,6 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
       cookieC: raw.slice(chunk * 2, chunk * 3),
       cookieD: raw.slice(chunk * 3, chunk * 4)
     };
-    kino.log("ytmusic screenEvent: cookies split and configured");
     s.tab = "library";
     s.libraryLoaded = false;
     return {
@@ -2165,19 +2366,15 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
 
   if (name === "do_search" || name === "searched") {
     const q = String(value || arg || (s.inputs && (s.inputs.searchQuery || s.inputs.search)) || "").trim();
-    kino.log("ytmusic screenEvent: do_search with query:", q);
     if (!q) {
-      kino.log("ytmusic screenEvent: search query empty");
       return { toast: "Escribe algo para buscar" };
     }
     s.searching = true;
     s.searched = true;
     s.lastQuery = q;
     try {
-      kino.log("ytmusic screenEvent: executing search for:", q);
       const rawResults = await search({ q });
       const items = Array.isArray(rawResults) ? rawResults : (rawResults && Array.isArray(rawResults.items) ? rawResults.items : []);
-      kino.log("ytmusic screenEvent: search returned total items:", items.length);
       s.searchResults = items.slice(0, 50);
     } catch (e) {
       kino.log("ytmusic screenEvent: search exception:", e && e.message ? e.message : e);
@@ -2189,42 +2386,31 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
 
   if (name === "generate_ai") {
     const prompt = String(value || arg || (s.inputs && (s.inputs.aiPrompt || s.inputs.prompt)) || "").trim();
-    kino.log("ytmusic screenEvent: generate_ai with prompt:", prompt);
     if (!prompt) {
       return { toast: "Escribe tu idea para la playlist" };
     }
     if (typeof kino.ai !== "object" || typeof kino.ai.ask !== "function") {
-      kino.log("ytmusic screenEvent: kino.ai.ask is unavailable on this device");
       return { toast: "Kino AI no está disponible en este dispositivo" };
     }
     s.aiLoading = true;
     try {
       const system = "You are a professional music curator. Return ONLY a valid JSON array of 5 to 7 song recommendations for the given user request. Each array element MUST be an object with string fields \"title\" and \"artist\". Do not include markdown codeblocks, notes, or explanations.";
-      kino.log("ytmusic screenEvent: calling kino.ai.ask");
       const res = await kino.ai.ask({ prompt, system, json: true, maxChars: 1200 });
-      kino.log("ytmusic screenEvent: kino.ai.ask response:", { ok: res?.ok, error: res?.error, len: res?.text?.length });
       if (!res || !res.ok) {
         s.aiLoading = false;
-        const err = res?.error || "Error al consultar a la IA";
-        kino.log("ytmusic screenEvent: kino.ai returned error:", err);
-        return { state: s, toast: err };
+        return { state: s, toast: res?.error || "Error al consultar a la IA" };
       }
-      kino.log("ytmusic screenEvent: kino.ai raw text:", res.text);
       let list = [];
       try {
         const cleaned = (res.text || "").replace(/```json/gi, "").replace(/```/g, "").trim();
         const parsed = JSON.parse(cleaned);
         list = Array.isArray(parsed) ? parsed : (parsed.songs || parsed.tracks || parsed.items || []);
-      } catch (e) {
-        kino.log("ytmusic screenEvent: JSON parse error on AI response:", e && e.message);
-      }
-      kino.log("ytmusic screenEvent: songs parsed from AI response:", list.length);
+      } catch (e) {}
       const tracks = [];
       for (const song of list.slice(0, 7)) {
         if (!song || !song.title) continue;
         const trackQ = song.title + (song.artist ? " " + song.artist : "");
         try {
-          kino.log("ytmusic screenEvent: searching YouTube Music for AI track:", trackQ);
           const found = await search({ q: trackQ });
           const items = Array.isArray(found) ? found : (found && Array.isArray(found.items) ? found.items : []);
           if (items.length) {
@@ -2233,11 +2419,8 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
               tracks.push(track);
             }
           }
-        } catch (err) {
-          kino.log("ytmusic screenEvent: error finding AI song:", err && err.message);
-        }
+        } catch (err) {}
       }
-      kino.log("ytmusic screenEvent: total AI tracks resolved:", tracks.length);
       s.aiTracks = tracks;
     } catch (e) {
       kino.log("ytmusic screenEvent: generate_ai exception:", e && e.message ? e.message : e);
@@ -2248,18 +2431,15 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
 
   if (name === "toggle_quality_setting") {
     const cur = kino.config.get("quality") === "opus" ? "aac" : "opus";
-    kino.log("ytmusic screenEvent: toggle_quality_setting to:", cur);
     return { state: s, config: { quality: cur }, toast: "Formato: " + cur.toUpperCase() };
   }
 
   if (name === "toggle_8d_setting") {
     const cur = kino.config.get("audio8d") === true;
-    kino.log("ytmusic screenEvent: toggle_8d_setting to:", !cur);
     return { state: s, config: { audio8d: !cur }, toast: !cur ? "Audio 8D activado" : "Audio 8D desactivado" };
   }
 
   if (name === "logout_session") {
-    kino.log("ytmusic screenEvent: logout_session");
     return {
       state: Object.assign({}, s, { libraryItems: [] }),
       clearSettings: COOKIE_KEYS.slice(),
@@ -2275,13 +2455,9 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
 // =============================================================================================
 
 async function fetchLyrics(videoId) {
-  kino.log("ytmusic panel: fetching lyrics for videoId:", videoId);
   try {
     const n = await safe("lyrics next", () => yt("next", { videoId }), null);
-    if (!n) {
-      kino.log("ytmusic panel: lyrics next returned null");
-      return null;
-    }
+    if (!n) return null;
     const tabs = n.contents?.singleColumnMusicWatchNextResultsRenderer?.tabbedRenderer?.watchNextTabbedResultsRenderer?.tabs || [];
     let browseId = null;
     for (const t of tabs) {
@@ -2291,32 +2467,22 @@ async function fetchLyrics(videoId) {
         break;
       }
     }
-    kino.log("ytmusic panel: lyrics browseId found:", browseId);
     if (!browseId) return null;
     const b = await safe("lyrics browse", () => yt("browse", { browseId }), null);
     const shelf = b?.contents?.sectionListRenderer?.contents?.[0]?.musicDescriptionShelfRenderer;
-    if (!shelf) {
-      kino.log("ytmusic panel: lyrics shelf not found");
-      return null;
-    }
+    if (!shelf) return null;
     const text = shelf.description?.runs?.map((r) => r.text).join("") || "";
     const footer = shelf.footer?.runs?.map((r) => r.text).join("") || "";
-    kino.log("ytmusic panel: lyrics loaded, length:", text.length);
     return { text, footer };
   } catch (e) {
-    kino.log("ytmusic panel: lyrics exception:", e && e.message ? e.message : e);
     return null;
   }
 }
 
 async function fetchUpNext(videoId) {
-  kino.log("ytmusic panel: fetching up next for videoId:", videoId);
   try {
     const n = await safe("next queue", () => yt("next", { videoId, playlistId: "RDAMVM" + videoId }), null);
-    if (!n) {
-      kino.log("ytmusic panel: up next returned null");
-      return [];
-    }
+    if (!n) return [];
     const tab0 = n.contents?.singleColumnMusicWatchNextResultsRenderer?.tabbedRenderer?.watchNextTabbedResultsRenderer?.tabs?.[0];
     const queue = tab0?.tabRenderer?.content?.musicQueueRenderer?.content?.playlistPanelRenderer?.contents || [];
     const list = [];
@@ -2331,10 +2497,8 @@ async function fetchUpNext(videoId) {
       list.push({ videoId: r.videoId, title, artist, length, thumb });
       if (list.length >= 20) break;
     }
-    kino.log("ytmusic panel: up next loaded count:", list.length);
     return list;
   } catch (e) {
-    kino.log("ytmusic panel: up next exception:", e && e.message ? e.message : e);
     return [];
   }
 }
@@ -2345,7 +2509,6 @@ export async function panel(context) {
   const p = parseRef(c.ref);
   const videoId = p && p.type === "t" ? p.id : "";
   const isScreen = (c.features || []).includes("screen");
-  kino.log("ytmusic panel opened:", { tab: currentTab, videoId, isScreen });
 
   if (isScreen) {
     let rootNode;
@@ -2361,7 +2524,7 @@ export async function panel(context) {
             padding: 16,
             gap: 12,
             children: lyricsData && lyricsData.text ? [
-              { type: "Text", key: "p_ly_head", text: "Letra", style: "h3" },
+              { type: "Text", key: "p_ly_head", text: "Letra de la Canción", style: "h3" },
               { type: "Text", key: "p_ly_text", text: lyricsData.text, style: "body" },
               ...(lyricsData.footer ? [{ type: "Text", key: "p_ly_foot", text: lyricsData.footer, style: "caption", color: "muted" }] : [])
             ] : [
@@ -2410,7 +2573,6 @@ export async function panel(context) {
         icon: "music"
       };
     } else {
-      // audio options
       const is8d = kino.config.get("audio8d") === true;
       const qual = kino.config.get("quality") || "aac";
       rootNode = {
@@ -2504,7 +2666,6 @@ export async function panel(context) {
 
 export async function panelAction(event, context) {
   const name = typeof event === "string" ? event : (event.name || event.key);
-  kino.log("ytmusic panelAction called:", name);
   if (name === "toggle_panel_8d" || name === "btn_p_8d") {
     const cur = kino.config.get("audio8d") === true;
     return { toast: !cur ? "Audio 8D activado" : "Audio 8D desactivado", config: { audio8d: !cur } };
