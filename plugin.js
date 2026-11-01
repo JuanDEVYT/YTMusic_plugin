@@ -2191,7 +2191,7 @@ export async function screen({ state, route, device, size, lang }) {
               variant: "outlined",
               children: [
                 { type: "Text", key: "ab_title", text: "Acerca de YTMUSIC para Kino", style: "h4" },
-                { type: "Text", key: "ab_desc", text: "Versión 0.5.10 · Creado por JuandreXter", color: "muted" }
+                { type: "Text", key: "ab_desc", text: "Versión 0.5.11 · Creado por JuandreXter", color: "muted" }
               ]
             }
           ]
