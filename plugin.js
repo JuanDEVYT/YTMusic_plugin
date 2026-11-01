@@ -2190,8 +2190,8 @@ export async function screen({ state, route, device, size, lang }) {
               padding: 16,
               variant: "outlined",
               children: [
-                { type: "Text", key: "ab_title", text: "Sobre YouTube Music para Kino", style: "h4" },
-                { type: "Text", key: "ab_desc", text: "Versión 0.5.10 · Experiencia premium nativa con carruseles horizontales, mini-reproductor, generador de listas con IA, panel de letras sincronizadas y filtros avanzados de audio.", color: "muted" }
+                { type: "Text", key: "ab_title", text: "Acerca de YTMUSIC para Kino", style: "h4" },
+                { type: "Text", key: "ab_desc", text: "Versión 0.5.10 · Creado por JuandreXter", color: "muted" }
               ]
             }
           ]
