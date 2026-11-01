@@ -1617,16 +1617,21 @@ export async function screen({ state, route, device, size, lang }) {
       variant: "outlined",
       children: [
         {
-          type: "Chips",
-          key: "trend_filter",
-          value: filter,
-          onChange: "filter_trending",
-          options: [
-            { value: "all", label: "🔥 Todo" },
-            { value: "songs", label: "🎵 Canciones" },
-            { value: "artists", label: "👑 Artistas" },
-            { value: "albums", label: "💿 Álbumes y Listas" }
-          ]
+          type: "SingleChildScrollView",
+          key: "trend_filter_scroll",
+          direction: "horizontal",
+          children: [{
+            type: "Chips",
+            key: "trend_filter",
+            value: filter,
+            onChange: "filter_trending",
+            options: [
+              { value: "all", label: "Todo", labelEn: "All" },
+              { value: "songs", label: "Canciones", labelEn: "Songs" },
+              { value: "artists", label: "Artistas", labelEn: "Artists" },
+              { value: "albums", label: "Álbumes y Listas", labelEn: "Albums & Lists" }
+            ]
+          }]
         }
       ]
     });
@@ -1664,7 +1669,7 @@ export async function screen({ state, route, device, size, lang }) {
         children.push({
           type: "titleRail",
           key: "rail_filtered",
-          title: filter === "songs" ? "🎵 Canciones destacadas" : filter === "artists" ? "👑 Artistas principales" : "💿 Álbumes y Listas",
+          title: filter === "songs" ? "Canciones destacadas" : filter === "artists" ? "Artistas principales" : "Álbumes y Listas",
           items: filteredItems.slice(0, 30)
         });
         // También listado detallado
@@ -1735,24 +1740,11 @@ export async function screen({ state, route, device, size, lang }) {
           },
           {
             type: "Text",
-            key: "sr_explore_title",
-            text: "Explorar géneros a un toque:",
+            key: "search_hint",
+            text: "Busca canciones, artistas, álbumes y playlists.",
+            textEn: "Search songs, artists, albums and playlists.",
             style: "caption",
             color: "muted"
-          },
-          {
-            type: "Chips",
-            key: "search_genre_chips",
-            onChange: "quick_search_chip",
-            options: [
-              { value: "Top Éxitos Mundiales", label: "🔥 Top Hits" },
-              { value: "Reggaeton 2024", label: "🌴 Reggaetón" },
-              { value: "Rock Clásico", label: "🎸 Rock" },
-              { value: "Pop en Español", label: "🎙️ Pop Latino" },
-              { value: "Electrónica Dance", label: "🎧 Electrónica" },
-              { value: "Salsa y Bachata", label: "🎺 Salsa & Tropical" },
-              { value: "Lo-Fi Beats Chill", label: "☕ Lo-Fi Relax" }
-            ]
           }
         ]
       }
@@ -1876,11 +1868,11 @@ export async function screen({ state, route, device, size, lang }) {
             key: "ai_quick_chips",
             onChange: "quick_ai_prompt",
             options: [
-              { value: "Rock clásico legendario de los 70 y 80", label: "🎸 Rock Clásico" },
-              { value: "Éxitos de reggaetón y pop latino 2024", label: "🔥 Pop & Urbano" },
-              { value: "Lo-Fi relajante y chill para estudiar concentrado", label: "🎧 Lo-Fi Chill" },
-              { value: "Música electrónica energizante para entrenar en el gym", label: "⚡ Gym & Workout" },
-              { value: "Synthwave y retrowave de noche en la ciudad", label: "🚗 Synthwave 80s" }
+              { value: "Rock clásico legendario de los 70 y 80", label: "Rock Clásico" },
+              { value: "Éxitos de reggaetón y pop latino 2024", label: "Pop & Urbano" },
+              { value: "Lo-Fi relajante y chill para estudiar concentrado", label: "Lo-Fi Chill" },
+              { value: "Música electrónica energizante para entrenar en el gym", label: "Gym & Workout" },
+              { value: "Synthwave y retrowave de noche en la ciudad", label: "Synthwave 80s" }
             ]
           },
           {
@@ -1915,7 +1907,7 @@ export async function screen({ state, route, device, size, lang }) {
       children.push({
         type: "titleRail",
         key: "ai_rail_results",
-        title: "✨ Selección Creada por la IA",
+        title: "Selección creada por la IA",
         items: aiList
       });
 
@@ -2068,14 +2060,14 @@ export async function screen({ state, route, device, size, lang }) {
                   { type: "Text", key: "g_t1", text: "Guía Rápida: Cómo extraer tus cookies", style: "h3" },
                   { type: "Text", key: "g_sub", text: "Elige el método según el dispositivo que estés usando:", color: "muted" },
                   { type: "Divider", key: "g_div1" },
-                  { type: "Text", key: "g_m1_title", text: "📱 Método 1: En tu celular Android (100% móvil)", style: "h4" },
+                  { type: "Text", key: "g_m1_title", text: "Método 1: En tu celular Android", style: "h4" },
                   { type: "Text", key: "g_m1_1", text: "1. Instala Kiwi Browser desde la Google Play Store." },
                   { type: "Text", key: "g_m1_2", text: "2. En Kiwi, abre la Chrome Web Store e instala la extensión Cookie-Editor." },
                   { type: "Text", key: "g_m1_3", text: "3. Entra a music.youtube.com e inicia sesión con tu cuenta de Google." },
                   { type: "Text", key: "g_m1_4", text: "4. Toca los tres puntos (⋮) de Kiwi -> Cookie-Editor -> Export -> Export as Header Value." },
                   { type: "Text", key: "g_m1_5", text: "5. Pega el texto en la caja de abajo y pulsa Vincular." },
                   { type: "Divider", key: "g_div2" },
-                  { type: "Text", key: "g_m2_title", text: "💻 Método 2: Desde una PC (Fácil en 1 minuto)", style: "h4" },
+                  { type: "Text", key: "g_m2_title", text: "Método 2: Desde una PC", style: "h4" },
                   { type: "Text", key: "g_m2_1", text: "1. Abre music.youtube.com en Chrome o Edge con tu cuenta de Google." },
                   { type: "Text", key: "g_m2_2", text: "2. Presiona F12 (Herramientas de Desarrollador) -> ve a la pestaña Red (Network)." },
                   { type: "Text", key: "g_m2_3", text: "3. Recarga la página y haz clic en cualquier petición (ej. browse o next)." },
@@ -2237,8 +2229,8 @@ export async function screen({ state, route, device, size, lang }) {
     appBar: {
       type: "AppBar",
       key: "ytm_app_bar",
-      title: tab === "search" ? "Buscar música" : "YouTube Music",
-      titleEn: tab === "search" ? "Search music" : "YouTube Music",
+      title: "",
+      titleEn: "",
       elevation: 2,
       actions,
       bottom: tab !== "search" ? {
