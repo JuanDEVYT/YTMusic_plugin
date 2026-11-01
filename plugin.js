@@ -1759,6 +1759,20 @@ export async function screen({ state, route, device, size, lang }) {
     ];
 
     if (s.searching) {
+      children.push({
+        type: "Card",
+        key: "search_loading_card",
+        padding: 24,
+        align: "center",
+        children: [
+          {
+            type: "CircularProgressIndicator",
+            key: "search_cpi",
+            text: "Buscando en YouTube Music...",
+            textEn: "Searching YouTube Music..."
+          }
+        ]
+      });
       children.push({ type: "Skeleton", key: "skel_search", variant: "list", rows: 6, padding: 12 });
     } else if (rawResults.length) {
       // Resultados encontrados con organización profesional
@@ -2177,7 +2191,7 @@ export async function screen({ state, route, device, size, lang }) {
               variant: "outlined",
               children: [
                 { type: "Text", key: "ab_title", text: "Sobre YouTube Music para Kino", style: "h4" },
-                { type: "Text", key: "ab_desc", text: "Versión 0.5.9 · Experiencia premium nativa con carruseles horizontales, mini-reproductor, generador de listas con IA, panel de letras sincronizadas y filtros avanzados de audio.", color: "muted" }
+                { type: "Text", key: "ab_desc", text: "Versión 0.5.10 · Experiencia premium nativa con carruseles horizontales, mini-reproductor, generador de listas con IA, panel de letras sincronizadas y filtros avanzados de audio.", color: "muted" }
               ]
             }
           ]
@@ -2186,39 +2200,68 @@ export async function screen({ state, route, device, size, lang }) {
     };
   }
 
+  const actions = [];
+
+  if (tab === "search") {
+    actions.push({
+      type: "IconButton",
+      key: "appbar_close_search",
+      icon: "close",
+      labelText: "Cerrar buscador",
+      labelTextEn: "Close search",
+      onPressed: "close_search"
+    });
+  } else {
+    actions.push({
+      type: "IconButton",
+      key: "appbar_search_btn",
+      icon: "search",
+      labelText: "Buscar",
+      labelTextEn: "Search",
+      onPressed: "open_search"
+    });
+  }
+
+  actions.push({
+    type: "IconButton",
+    key: "appbar_refresh",
+    icon: "refresh",
+    labelText: "Actualizar",
+    labelTextEn: "Refresh",
+    onPressed: "refresh_screen"
+  });
+
   return {
     type: "Scaffold",
     key: "ytm_main_scaffold",
     appBar: {
       type: "AppBar",
       key: "ytm_app_bar",
-      title: "YouTube Music",
-      titleEn: "YouTube Music",
+      title: tab === "search" ? "Buscar música" : "YouTube Music",
+      titleEn: tab === "search" ? "Search music" : "YouTube Music",
       elevation: 2,
-      actions: [
-        {
-          type: "IconButton",
-          key: "appbar_refresh",
-          icon: "refresh",
-          labelText: "Actualizar",
-          labelTextEn: "Refresh",
-          onPressed: "refresh_screen"
-        }
-      ],
-      bottom: {
+      actions,
+      bottom: tab !== "search" ? {
         type: "TabBar",
         key: "ytm_tab_bar",
         value: tab,
         onChanged: "switch_screen_tab",
         tabs: [
           { value: "trending", label: "Explorar", labelEn: "Explore" },
-          { value: "search", label: "Buscador", labelEn: "Search" },
           { value: "ai", label: "Playlist IA", labelEn: "AI Playlist" },
           { value: "library", label: "Mi Música", labelEn: "My Music" },
           { value: "account", label: "Ajustes", labelEn: "Settings" }
         ]
-      }
+      } : null
     },
+    floatingActionButton: tab !== "search" ? {
+      type: "FloatingActionButton",
+      key: "fab_search",
+      icon: "search",
+      labelText: "Buscar música",
+      labelTextEn: "Search music",
+      onPressed: "open_search"
+    } : null,
     body: bodyNode
   };
 }
@@ -2274,6 +2317,17 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     } else {
       s.libraryLoaded = true;
     }
+    return { state: s };
+  }
+
+  if (name === "open_search") {
+    s.prevTab = s.tab !== "search" ? s.tab : (s.prevTab || "trending");
+    s.tab = "search";
+    return { state: s };
+  }
+
+  if (name === "close_search") {
+    s.tab = s.prevTab || "trending";
     return { state: s };
   }
 
