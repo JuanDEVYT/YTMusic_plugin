@@ -401,16 +401,18 @@ function headerOf(data) {
   if (!h) return {};
   let d = h.description;
   if (d && d.musicDescriptionShelfRenderer) d = d.musicDescriptionShelfRenderer.description;
+  const stats = txt(h.secondSubtitle).trim();
   let overview = txt(d).trim();
-  if (!overview) {
-    overview = [txt(h.subtitle), txt(h.secondSubtitle)].map((s) => s.trim()).filter(Boolean).join(" · ");
-  }
+  if (!overview) overview = txt(h.subtitle).trim();
+  // Descripción (o subtítulo) y, detrás, las cifras de la cabecera: oyentes, canciones, duración.
+  const full = [overview, stats].filter(Boolean).join(" · ");
   const sub = (h.subtitle && h.subtitle.runs) || [];
   return {
     title: txt(h.title).trim() || undefined,
     poster: bigThumb(h.thumbnail && (h.thumbnail.musicThumbnailRenderer || h.thumbnail.croppedSquareThumbnailRenderer)),
     year: yearOf(sub),
-    overview: overview ? overview.slice(0, 2000) : undefined,
+    stats: stats || undefined,
+    overview: full ? full.slice(0, 2000) : undefined,
   };
 }
 
@@ -759,15 +761,22 @@ async function trackPages(data, maxPages, deadline) {
   return tracks;
 }
 
-const episodeOf = (x, i, head) => ({
-  season: 1,
-  number: i + 1,
-  ref: trackRef(x.id, x.title),
-  title: x.title.slice(0, 200),
-  still: x.poster || head.poster,
-  runtimeMinutes: x.minutes,
-  overview: x.album ? ("Álbum: " + x.album).slice(0, 2000) : undefined,
-});
+const episodeOf = (x, i, head) => {
+  const facts = [];
+  if (x.album) facts.push("Álbum: " + x.album);
+  if (x.video) facts.push("Video musical");
+  if (x.year) facts.push(String(x.year));
+  if (x.explicit) facts.push("Explícito");
+  return {
+    season: 1,
+    number: i + 1,
+    ref: trackRef(x.id, x.title),
+    title: x.title.slice(0, 200),
+    still: x.poster || head.poster,
+    runtimeMinutes: x.minutes,
+    overview: facts.length ? facts.join(" · ").slice(0, 2000) : undefined,
+  };
+};
 
 // La página de un artista: sus canciones como pistas y sus álbumes y sencillos como "temporadas"
 // (cada una se abre como su propio álbum).
@@ -824,13 +833,20 @@ async function artistEpisodes(id, deadline) {
     if (d) tracks = await trackPages(d, 1, deadline);
   }
   if (!tracks.length) throw kino.error("not_found", "artista sin pistas", { userMessage: "No se encontraron canciones de este artista." });
+  const counts = [tracks.length + (tracks.length === 1 ? " canción" : " canciones")];
+  if (albums.length) counts.push(albums.length + (albums.length === 1 ? " álbum y sencillo" : " álbumes y sencillos"));
+  const overview = [head.overview, counts.join(" · ")].filter(Boolean).join(" · ").slice(0, 2000);
   const out = {
-    series: { title: head.title, poster: head.poster, backdrop: head.poster, overview: head.overview },
+    series: { title: head.title, poster: head.poster, backdrop: head.poster, overview },
     episodes: tracks.slice(0, 500).map((x, i) => episodeOf(x, i, head)),
   };
   if (albums.length) {
     out.seasons = [{ id: "a." + id, ref: "a:" + id, title: "Canciones", current: true }].concat(
-      albums.map((a) => ({ id: "b." + a.id, ref: "b:" + a.id, title: a.title.slice(0, 200) })),
+      albums.map((a) => ({
+        id: "b." + a.id,
+        ref: "b:" + a.id,
+        title: (a.year ? a.title + " (" + a.year + ")" : a.title).slice(0, 200),
+      })),
     );
   }
   return out;
@@ -1619,7 +1635,16 @@ export async function screen({ state, route, device, size, lang }) {
         key: "hero_trend",
         title: "Tendencias Musicales",
         text: featuredHero.title ? "Destacado: " + featuredHero.title : "Descubre música en YouTube Music",
-        image: featuredHero.poster || ""
+        image: featuredHero.poster || "",
+        buttons: [{
+          type: "Button",
+          key: "hero_btn_search",
+          variant: "secondary",
+          icon: "search",
+          labelText: "Buscar música",
+          labelTextEn: "Search music",
+          onPressed: "open_search"
+        }]
       });
     }
 
@@ -1702,8 +1727,16 @@ export async function screen({ state, route, device, size, lang }) {
           key: "trend_empty",
           title: "Sin resultados en esta categoría",
           titleEn: "No items in this category",
-          text: "Selecciona otra categoría arriba o pulsa actualizar.",
-          icon: "refresh"
+          text: "Selecciona otra categoría arriba o vuelve a cargar la página.",
+          icon: "filter_list"
+        });
+        children.push({
+          type: "ElevatedButton",
+          key: "btn_trend_refresh",
+          labelText: "Actualizar",
+          labelTextEn: "Refresh",
+          icon: "refresh",
+          onPressed: "refresh_screen"
         });
       }
     }
@@ -1733,7 +1766,28 @@ export async function screen({ state, route, device, size, lang }) {
       else others.push(it);
     }
 
+    const artists = [];
+    const albums = [];
+    for (const it of others) (parseItemType(it.ref, it.badges).isArtist ? artists : albums).push(it);
+    const shownTracks = filter === "artists" || filter === "albums" ? [] : tracks;
+    const shownOthers = filter === "all" ? others : filter === "songs" ? [] : filter === "artists" ? artists : albums;
+
     const children = [
+      {
+        type: "Row",
+        key: "search_top_row",
+        children: [
+          {
+            type: "TextButton",
+            key: "btn_close_search",
+            icon: "arrow_back",
+            labelText: "Volver",
+            labelTextEn: "Back",
+            onPressed: "close_search"
+          },
+          { type: "Text", key: "search_top_title", text: "Buscar en YouTube Music", textEn: "Search YouTube Music", style: "h3" }
+        ]
+      },
       {
         type: "Card",
         key: "search_card",
@@ -1766,6 +1820,33 @@ export async function screen({ state, route, device, size, lang }) {
       }
     ];
 
+    // Filtro de resultados por tipo de contenido.
+    children.push({
+      type: "Card",
+      key: "search_filter_card",
+      padding: 8,
+      variant: "outlined",
+      children: [
+        {
+          type: "SingleChildScrollView",
+          key: "search_filter_scroll",
+          direction: "horizontal",
+          children: [{
+            type: "Chips",
+            key: "search_filter",
+            value: filter,
+            onChange: "filter_search",
+            options: [
+              { value: "all", label: "Todo", labelEn: "All" },
+              { value: "songs", label: "Canciones", labelEn: "Songs" },
+              { value: "artists", label: "Artistas", labelEn: "Artists" },
+              { value: "albums", label: "Álbumes", labelEn: "Albums" }
+            ]
+          }]
+        }
+      ]
+    });
+
     if (s.searching) {
       children.push({
         type: "Card",
@@ -1782,23 +1863,23 @@ export async function screen({ state, route, device, size, lang }) {
         ]
       });
       children.push({ type: "Skeleton", key: "skel_search", variant: "list", rows: 6, padding: 12 });
-    } else if (rawResults.length) {
+    } else if (rawResults.length && (shownTracks.length || shownOthers.length)) {
       // Resultados encontrados con organización profesional
-      if (others.length) {
+      if (shownOthers.length) {
         children.push({
           type: "titleRail",
           key: "sr_rail_others",
-          title: "Artistas y Álbumes encontrados",
-          items: others.slice(0, 20)
+          title: filter === "artists" ? "Artistas encontrados" : filter === "albums" ? "Álbumes y Listas encontrados" : "Artistas y Álbumes encontrados",
+          items: shownOthers.slice(0, 20)
         });
       }
 
-      if (tracks.length) {
+      if (shownTracks.length) {
         children.push({
           type: "titleRail",
           key: "sr_rail_tracks",
           title: "Canciones destacadas",
-          items: tracks.slice(0, 20)
+          items: shownTracks.slice(0, 20)
         });
 
         // Lista de reproducción directa con información enriquecida
@@ -1809,10 +1890,19 @@ export async function screen({ state, route, device, size, lang }) {
           variant: "outlined",
           children: [
             { type: "Text", key: "sr_tracklist_head", text: "Lista de Canciones", style: "h4" },
-            ...tracks.slice(0, 15).map((item, idx) => renderMusicTile(item, idx, "sr_t_"))
+            ...shownTracks.slice(0, 15).map((item, idx) => renderMusicTile(item, idx, "sr_t_"))
           ]
         });
       }
+    } else if (rawResults.length) {
+      children.push({
+        type: "emptyState",
+        key: "sr_filter_empty",
+        title: "Sin resultados en este filtro",
+        titleEn: "No results in this filter",
+        text: "Selecciona «Todo» arriba o pulsa Volver para cambiar la búsqueda.",
+        icon: "filter_list"
+      });
     } else if (s.searched) {
       children.push({
         type: "emptyState",
@@ -1884,11 +1974,11 @@ export async function screen({ state, route, device, size, lang }) {
             key: "ai_quick_chips",
             onChange: "quick_ai_prompt",
             options: [
-              { value: "Rock clásico legendario de los 70 y 80", label: "Rock Clásico" },
-              { value: "Éxitos de reggaetón y pop latino 2024", label: "Pop & Urbano" },
-              { value: "Lo-Fi relajante y chill para estudiar concentrado", label: "Lo-Fi Chill" },
-              { value: "Música electrónica energizante para entrenar en el gym", label: "Gym & Workout" },
-              { value: "Synthwave y retrowave de noche en la ciudad", label: "Synthwave 80s" }
+              { value: "Rock clásico legendario de los 70 y 80", label: "Rock Clásico", labelEn: "Classic Rock" },
+              { value: "Éxitos de reggaetón y pop latino 2024", label: "Pop & Urbano", labelEn: "Pop & Urban" },
+              { value: "Lo-Fi relajante y chill para estudiar concentrado", label: "Lo-Fi Chill", labelEn: "Lo-Fi Chill" },
+              { value: "Música electrónica energizante para entrenar en el gym", label: "Gym & Workout", labelEn: "Gym & Workout" },
+              { value: "Synthwave y retrowave de noche en la ciudad", label: "Synthwave 80s", labelEn: "Synthwave 80s" }
             ]
           },
           {
@@ -1989,19 +2079,55 @@ export async function screen({ state, route, device, size, lang }) {
               type: "ListTile",
               key: "lib_user_tile",
               title: "Mi Biblioteca Sincronizada",
-              subtitle: "Conectado a tu cuenta oficial de YouTube Music",
-              leading: { type: "CircleAvatar", radius: 24, text: "YT" },
-              trailing: { type: "Icon", name: "settings" },
+              titleEn: "My synced library",
+              subtitle: rawLib.length
+                ? "Conectado a tu cuenta · " + rawLib.length + " elementos guardados"
+                : "Conectado a tu cuenta oficial de YouTube Music",
+              subtitleEn: "Connected to your YouTube Music account",
+              leading: { type: "CircleAvatar", key: "lib_avatar", radius: 24, icon: "music" },
+              trailing: { type: "Icon", key: "lib_open_account", name: "arrow_forward" },
               onTap: "switch_screen_tab_account"
             }
           ]
         }
       ];
 
+      // Filtro por tipo de contenido guardado.
+      children.push({
+        type: "Card",
+        key: "lib_filter_card",
+        padding: 8,
+        variant: "outlined",
+        children: [
+          {
+            type: "SingleChildScrollView",
+            key: "lib_filter_scroll",
+            direction: "horizontal",
+            children: [{
+              type: "Chips",
+              key: "lib_filter",
+              value: filter,
+              onChange: "filter_library",
+              options: [
+                { value: "all", label: "Todo", labelEn: "All" },
+                { value: "playlists", label: "Listas", labelEn: "Playlists" },
+                { value: "albums", label: "Álbumes", labelEn: "Albums" },
+                { value: "tracks", label: "Me gusta", labelEn: "Liked" }
+              ]
+            }]
+          }
+        ]
+      });
+
       if (!s.libraryLoaded) {
         children.push({ type: "Skeleton", key: "skel_lib", variant: "list", rows: 8, padding: 12 });
       } else if (rawLib.length) {
-        if (playlists.length) {
+        const showPlaylists = filter === "all" || filter === "playlists";
+        const showAlbums = filter === "all" || filter === "albums";
+        const showTracks = filter === "all" || filter === "tracks";
+        let shown = 0;
+        if (showPlaylists && playlists.length) {
+          shown++;
           children.push({
             type: "titleRail",
             key: "lib_rail_playlists",
@@ -2009,7 +2135,8 @@ export async function screen({ state, route, device, size, lang }) {
             items: playlists
           });
         }
-        if (others.length) {
+        if (showAlbums && others.length) {
+          shown++;
           children.push({
             type: "titleRail",
             key: "lib_rail_albums",
@@ -2017,7 +2144,8 @@ export async function screen({ state, route, device, size, lang }) {
             items: others
           });
         }
-        if (tracks.length) {
+        if (showTracks && tracks.length) {
+          shown++;
           children.push({
             type: "titleRail",
             key: "lib_rail_tracks",
@@ -2035,13 +2163,23 @@ export async function screen({ state, route, device, size, lang }) {
             ]
           });
         }
+        if (!shown) {
+          children.push({
+            type: "emptyState",
+            key: "lib_filter_empty",
+            title: "Nada en este filtro",
+            titleEn: "Nothing in this filter",
+            text: "Selecciona «Todo» arriba para ver toda tu biblioteca.",
+            icon: "filter_list"
+          });
+        }
       } else {
         children.push({
           type: "emptyState",
           key: "lib_empty",
           title: s.libraryError ? "No se pudo cargar tu biblioteca" : "No se encontraron listas guardadas",
           text: s.libraryError || "Comprueba que las listas estén guardadas en la biblioteca de YouTube Music y actualiza para volver a sincronizar.",
-          icon: "music"
+          icon: s.libraryError ? "warning" : "music"
         });
       }
 
@@ -2085,20 +2223,36 @@ export async function screen({ state, route, device, size, lang }) {
                 children: [
                   { type: "Text", key: "g_t1", text: "Guía Rápida: Cómo extraer tus cookies", style: "h3" },
                   { type: "Text", key: "g_sub", text: "Elige el método según el dispositivo que estés usando:", color: "muted" },
-                  { type: "Divider", key: "g_div1" },
-                  { type: "Text", key: "g_m1_title", text: "Método 1: En tu celular Android", style: "h4" },
-                  { type: "Text", key: "g_m1_1", text: "1. Instala Kiwi Browser desde la Google Play Store." },
-                  { type: "Text", key: "g_m1_2", text: "2. En Kiwi, abre la Chrome Web Store e instala la extensión Cookie-Editor." },
-                  { type: "Text", key: "g_m1_3", text: "3. Entra a music.youtube.com e inicia sesión con tu cuenta de Google." },
-                  { type: "Text", key: "g_m1_4", text: "4. Toca los tres puntos (⋮) de Kiwi -> Cookie-Editor -> Export -> Export as Header Value." },
-                  { type: "Text", key: "g_m1_5", text: "5. Pega el texto en la caja de abajo y pulsa Vincular." },
-                  { type: "Divider", key: "g_div2" },
-                  { type: "Text", key: "g_m2_title", text: "Método 2: Desde una PC", style: "h4" },
-                  { type: "Text", key: "g_m2_1", text: "1. Abre music.youtube.com en Chrome o Edge con tu cuenta de Google." },
-                  { type: "Text", key: "g_m2_2", text: "2. Presiona F12 (Herramientas de Desarrollador) -> ve a la pestaña Red (Network)." },
-                  { type: "Text", key: "g_m2_3", text: "3. Recarga la página y haz clic en cualquier petición (ej. browse o next)." },
-                  { type: "Text", key: "g_m2_4", text: "4. En Encabezados de solicitud, copia todo el valor que sale en «cookie:»." },
-                  { type: "Text", key: "g_m2_5", text: "5. Envíatelo a tu móvil por WhatsApp o Telegram y pégalo abajo." }
+                  {
+                    type: "ExpansionTile",
+                    key: "guest_guide_methods",
+                    items: [
+                      {
+                        key: "m_android",
+                        title: "Método 1: En tu celular Android",
+                        titleEn: "Method 1: On your Android phone",
+                        children: [
+                          { type: "Text", key: "g_m1_1", text: "1. Instala Kiwi Browser desde la Google Play Store." },
+                          { type: "Text", key: "g_m1_2", text: "2. En Kiwi, abre la Chrome Web Store e instala la extensión Cookie-Editor." },
+                          { type: "Text", key: "g_m1_3", text: "3. Entra a music.youtube.com e inicia sesión con tu cuenta de Google." },
+                          { type: "Text", key: "g_m1_4", text: "4. Toca el menú de tres puntos de Kiwi, elige Cookie-Editor, Export y Export as Header Value." },
+                          { type: "Text", key: "g_m1_5", text: "5. Pega el texto en la caja de abajo y pulsa Vincular." }
+                        ]
+                      },
+                      {
+                        key: "m_pc",
+                        title: "Método 2: Desde una PC",
+                        titleEn: "Method 2: From a computer",
+                        children: [
+                          { type: "Text", key: "g_m2_1", text: "1. Abre music.youtube.com en Chrome o Edge con tu cuenta de Google." },
+                          { type: "Text", key: "g_m2_2", text: "2. Presiona F12 (Herramientas de Desarrollador) y ve a la pestaña Red (Network)." },
+                          { type: "Text", key: "g_m2_3", text: "3. Recarga la página y haz clic en cualquier petición (por ejemplo browse o next)." },
+                          { type: "Text", key: "g_m2_4", text: "4. En Encabezados de solicitud, copia todo el valor que sale en «cookie»." },
+                          { type: "Text", key: "g_m2_5", text: "5. Envíatelo a tu móvil por WhatsApp o Telegram y pégalo abajo." }
+                        ]
+                      }
+                    ]
+                  }
                 ]
               },
               {
@@ -2133,8 +2287,6 @@ export async function screen({ state, route, device, size, lang }) {
   } else {
     // tab === "account"
     const hasSess = !!savedCookie();
-    const is8d = kino.config.get("audio8d") === true;
-    const qual = kino.config.get("quality") || "aac";
     bodyNode = {
       type: "SingleChildScrollView",
       key: "acc_scroll",
@@ -2151,27 +2303,22 @@ export async function screen({ state, route, device, size, lang }) {
               padding: 16,
               variant: "outlined",
               children: [
-                { type: "Text", key: "acc_head", text: "Cuenta de YouTube Music", style: "h3" },
                 {
-                  type: "Text",
-                  key: "acc_stat",
-                  text: hasSess ? "Estado: Sesión activa y sincronizada" : "Estado: Modo Invitado (sin sesión)",
-                  color: hasSess ? "primary" : "muted"
+                  type: "ListTile",
+                  key: "acc_status_tile",
+                  title: "Cuenta de YouTube Music",
+                  titleEn: "YouTube Music account",
+                  subtitle: hasSess ? "Sesión activa y sincronizada" : "Modo invitado (sin sesión)",
+                  subtitleEn: hasSess ? "Session active and synced" : "Guest mode (no session)",
+                  leading: { type: "CircleAvatar", key: "acc_avatar", radius: 24, icon: hasSess ? "check" : "person" },
+                  trailing: { type: "Icon", key: "acc_status_icon", name: hasSess ? "check" : "info" }
                 },
-                ...(hasSess ? [
-                  {
-                    type: "ElevatedButton",
-                    key: "btn_logout",
-                    labelText: "Cerrar sesión",
-                    labelTextEn: "Log out",
-                    icon: "person",
-                    onPressed: "logout_session"
-                  }
-                ] : [
+                ...(hasSess ? [] : [
                   {
                     type: "ElevatedButton",
                     key: "btn_go_login_guide",
                     labelText: "Abrir guía de inicio de sesión",
+                    labelTextEn: "Open sign-in guide",
                     icon: "info",
                     onPressed: "switch_screen_tab_library"
                   }
@@ -2179,28 +2326,25 @@ export async function screen({ state, route, device, size, lang }) {
               ]
             },
             {
-              type: "Card",
-              key: "card_audio_settings",
-              padding: 16,
-              children: [
-                { type: "Text", key: "aud_head", text: "Preferencias de Audio", style: "h3" },
-                {
-                  type: "ListTile",
-                  key: "tile_quality",
-                  title: "Formato de reproducción",
-                  subtitle: qual === "opus" ? "Opus (máxima calidad y fidelidad)" : "AAC (alta compatibilidad)",
-                  trailing: { type: "Icon", name: "tune" },
-                  onTap: "toggle_quality_setting"
-                },
-                {
-                  type: "ListTile",
-                  key: "tile_8d",
-                  title: "Audio 8D envolvente",
-                  subtitle: is8d ? "Activado: busca versiones binaurales 8D puras" : "Desactivado: audio original",
-                  trailing: { type: "Icon", name: "bolt" },
-                  onTap: "toggle_8d_setting"
-                }
-              ]
+              type: "settings",
+              key: "acc_settings_form",
+              keys: [
+                "about",
+                "account",
+                "cookieA",
+                "cookieB",
+                "cookieC",
+                "cookieD",
+                "linked",
+                "logout",
+                "playback",
+                "quality",
+                "method",
+                "audio8d",
+                "content",
+                "hideExplicit"
+              ],
+              onSaved: "settings_saved"
             },
             {
               type: "Card",
@@ -2208,8 +2352,16 @@ export async function screen({ state, route, device, size, lang }) {
               padding: 16,
               variant: "outlined",
               children: [
-                { type: "Text", key: "ab_title", text: "Acerca de YTMUSIC para Kino", style: "h4" },
-                { type: "Text", key: "ab_desc", text: "Versión 0.5.11 · Creado por JuandreXter", color: "muted" }
+                {
+                  type: "ListTile",
+                  key: "about_tile",
+                  title: "Acerca de YTMusic para Kino",
+                  titleEn: "About YTMusic for Kino",
+                  subtitle: "Versión 0.5.16 · Creado por JuandreXter",
+                  subtitleEn: "Version 0.5.16 · Created by JuandreXter",
+                  leading: { type: "CircleAvatar", key: "about_avatar", radius: 24, icon: "info" },
+                  dense: true
+                }
               ]
             }
           ]
@@ -2519,6 +2671,33 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     };
   }
 
+  // El formulario de ajustes de Kino terminó de guardar (Guardar o un cambio automático).
+  if (name === "settings_saved") {
+    const keys = value && Array.isArray(value.keys) ? value.keys : [];
+    const acted = (value && value.action) || "";
+    const ok = !value || value.ok !== false;
+    if (keys.includes("logout") || acted === "logout") {
+      s.libraryItems = [];
+      s.libraryError = "";
+      s.libraryLoaded = true;
+    } else if (keys.some((k) => k === "cookieA" || k === "cookieB" || k === "cookieC" || k === "cookieD")) {
+      s.libraryLoaded = false;
+      if (savedCookie()) {
+        try {
+          const rows = await libraryRows();
+          s.libraryItems = rows.flatMap((r) => r.items || []);
+          s.libraryError = "";
+        } catch (e) {
+          s.libraryError = "No se pudieron cargar las listas. Revisa la sesión y vuelve a sincronizar.";
+        }
+      } else {
+        s.libraryItems = [];
+      }
+      s.libraryLoaded = true;
+    }
+    return { state: s, toast: ok ? "Ajustes guardados" : "Revisa los ajustes: no se pudieron guardar" };
+  }
+
   return { state: s };
 }
 
@@ -2661,7 +2840,7 @@ export async function panel(context) {
             children: [
               { type: "Text", key: "p_t_8d", text: "Audio 8D envolvente", style: "h4" },
               { type: "Text", key: "p_s_8d", text: is8d ? "Actualmente activo" : "Desactivado", color: "muted" },
-              { type: "ElevatedButton", key: "btn_p_8d", labelText: is8d ? "Desactivar 8D" : "Activar 8D", onPressed: "toggle_panel_8d" }
+              { type: "ElevatedButton", key: "btn_p_8d", labelText: is8d ? "Desactivar 8D" : "Activar 8D", icon: "bolt", onPressed: "toggle_panel_8d" }
             ]
           },
           {
@@ -2671,7 +2850,7 @@ export async function panel(context) {
             children: [
               { type: "Text", key: "p_t_q", text: "Formato de Audio", style: "h4" },
               { type: "Text", key: "p_s_q", text: qual === "opus" ? "Opus (mayor fidelidad)" : "AAC (alta compatibilidad)", color: "muted" },
-              { type: "ElevatedButton", key: "btn_p_q", labelText: qual === "opus" ? "Cambiar a AAC" : "Cambiar a Opus", onPressed: "toggle_panel_quality" }
+              { type: "ElevatedButton", key: "btn_p_q", labelText: qual === "opus" ? "Cambiar a AAC" : "Cambiar a Opus", icon: "tune", onPressed: "toggle_panel_quality" }
             ]
           }
         ]
