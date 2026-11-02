@@ -555,6 +555,35 @@ function accountOptionsNode() {
   };
 }
 
+// The cookies YouTube Music needs to treat the person as themselves (not a guest): the session ones plus LOGIN_INFO and the
+// visitor ones. Kino writes them as one header cut across cookieA..cookieD (500 characters each), which joinCookie() joins again.
+const LINK_COOKIES = [
+  "SID", "HSID", "SSID", "APISID", "SAPISID",
+  "__Secure-1PSID", "__Secure-3PSID", "__Secure-1PAPISID", "__Secure-3PAPISID",
+  "__Secure-1PSIDTS", "__Secure-3PSIDTS", "LOGIN_INFO", "VISITOR_INFO1_LIVE", "YSC"
+];
+
+// Asks YouTube Music who the saved cookies are: a session it does not recognise answers 200 with guest content, so the 200 alone
+// proves nothing. Logs only the cookie NAMES (never a value) and keeps the result for the account card.
+async function checkSession(s) {
+  const cookie = savedCookie();
+  if (!cookie) {
+    s.accountChecked = false;
+    s.accountName = "";
+    return;
+  }
+  kino.log("ytmusic account: cookie names", Object.keys(parseCookie(cookie)).join(","));
+  try {
+    const name = await accountName(cookie);
+    s.accountName = name || "";
+    s.accountChecked = true;
+    kino.log("ytmusic account: " + (name ? "recognised" : "NOT recognised"));
+  } catch (e) {
+    s.accountChecked = false;
+    kino.log("ytmusic account: check failed", (e && e.code) || "error");
+  }
+}
+
 // Ajuste "Ocultar contenido explícito".
 function hideExplicit() {
   return kino.config.get("hideExplicit") === true;
@@ -2277,8 +2306,11 @@ export async function screen({ state, route, device, size, lang, installed }) {
                 {
                   type: "Text",
                   key: "acc_stat",
-                  text: hasSess ? "Estado: Sesión activa y sincronizada" : "Estado: Modo Invitado (sin sesión)",
-                  color: hasSess ? "primary" : "muted"
+                  text: !hasSess ? "Estado: Modo Invitado (sin sesión)"
+                    : (s.accountChecked && !s.accountName) ? "Estado: YouTube no reconoce esta sesión"
+                    : s.accountName ? "Estado: Sesión activa como " + s.accountName
+                    : "Estado: Sesión activa y sincronizada",
+                  color: hasSess && !(s.accountChecked && !s.accountName) ? "primary" : "muted"
                 },
                 ...(hasSess ? [
                   {
@@ -2410,6 +2442,7 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     // On a reload the saved cookies are the truth again (the screen-only flags of link_account / logout_session end here).
     s.sessionOff = false;
     s.linkedNow = false;
+    await checkSession(s);
     kino.log("ytmusic screenEvent: loading charts and home rows");
     try {
       const [homeRows, sectionData] = await Promise.all([
@@ -2678,7 +2711,7 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
       title: "YouTube Music",
       userAgent: "browser",
       doneWhen: { cookies: ["SAPISID"] },
-      collect: { cookies: ["SID", "HSID", "SSID", "APISID", "SAPISID", "__Secure-3PSID"], storeAs: { setting: "cookieA", format: "header", thenEvent: "account_linked" } },
+      collect: { cookies: LINK_COOKIES, storeAs: { setting: "cookieA", spill: ["cookieB", "cookieC", "cookieD"], format: "header", thenEvent: "account_linked" } },
       timeoutMs: 600000
     });
     // Kino writes the cookies once this call ends; linkedNow shows the linked state at once, until the setting is read.
