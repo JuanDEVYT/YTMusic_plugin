@@ -443,6 +443,8 @@ function toItem(x) {
   if (x.type === "track") {
     it.id = "t." + x.id;
     it.ref = trackRef(x.id, x.title);
+    // Kino 0.9.81 (apiVersion 19): the video id, so a lyrics plugin finds the exact recording. Older Kinos ignore it.
+    it.ids = { youtube: String(x.id).slice(0, 64) };
     badges.push(x.video ? "Video" : "Canción");
   } else if (x.type === "artist") {
     it.id = "a." + x.id;
@@ -462,6 +464,29 @@ function toItem(x) {
   if (x.type === "track" && x.album) it.overview = ("Álbum: " + x.album).slice(0, 2000);
   return it;
 }
+
+// Plugins that add to this one. Each becomes a tile in Ajustes; pressing it opens Kino's own "Agregar un plugin" with the repo
+// filled in (go.installPlugin, apiVersion 19), where the person confirms the install. Add an entry to offer another.
+const RECOMMENDED_PLUGINS = [
+  {
+    key: "lyrics_ytmusic",
+    title: "Letras de YouTube Music",
+    subtitle: "Instala las letras de YouTube Music: aparece un botón Letra en el reproductor",
+    repo: "kinotvapp/kino-plugin-lyrics-ytmusic"
+  },
+  {
+    key: "lyrics_lrclib",
+    title: "Letras de LRCLIB",
+    subtitle: "Instala las letras de LRCLIB, con la letra sincronizada línea a línea",
+    repo: "kinotvapp/kino-plugin-lyrics-lrclib"
+  }
+];
+
+// Kino tells every call which of the manifest's "recommends" are installed now ({ "owner/name": true|false }, apiVersion 19).
+let lastInstalled = {};
+
+// Pressing search: at once (no plugin call) show the spinner card and move the focus onto it, which drops the keyboard; then search.
+const SEARCH_ACTION = { ui: [{ show: "search_loading_card" }, { focus: "search_loading_card" }], event: "do_search" };
 
 // Ajuste "Ocultar contenido explícito".
 function hideExplicit() {
@@ -1599,7 +1624,8 @@ function renderMusicTile(item, idx, prefix = "tr_") {
   };
 }
 
-export async function screen({ state, route, device, size, lang }) {
+export async function screen({ state, route, device, size, lang, installed }) {
+  lastInstalled = installed || {};
   const s = state || {};
   const tab = s.tab || "trending";
 
@@ -1748,11 +1774,11 @@ export async function screen({ state, route, device, size, lang }) {
             labelTextEn: "Search YouTube Music",
             hintText: "Canción, artista, álbum o playlist...",
             hintTextEn: "Song, artist, album or playlist...",
-            onSubmit: "do_search",
+            onSubmitted: SEARCH_ACTION,
             trailingIcon: "search",
             trailingLabel: "Buscar",
             trailingLabelEn: "Search",
-            onTrailingTap: "do_search"
+            onTrailingTap: SEARCH_ACTION
           },
           {
             type: "Text",
@@ -1766,12 +1792,14 @@ export async function screen({ state, route, device, size, lang }) {
       }
     ];
 
-    if (s.searching) {
-      children.push({
+    // The spinner card always exists, hidden: pressing search shows it before the plugin is even called (SEARCH_ACTION).
+    children.push({
         type: "Card",
         key: "search_loading_card",
         padding: 24,
         align: "center",
+        hidden: true,
+        canRequestFocus: true,
         children: [
           {
             type: "CircularProgressIndicator",
@@ -1781,6 +1809,7 @@ export async function screen({ state, route, device, size, lang }) {
           }
         ]
       });
+    if (s.searching) {
       children.push({ type: "Skeleton", key: "skel_search", variant: "list", rows: 6, padding: 12 });
     } else if (rawResults.length) {
       // Resultados encontrados con organización profesional
@@ -2204,6 +2233,22 @@ export async function screen({ state, route, device, size, lang }) {
             },
             {
               type: "Card",
+              key: "card_recommended",
+              padding: 16,
+              variant: "outlined",
+              children: [{ type: "Text", key: "rec_head", text: "Plugins recomendados", style: "h3" }].concat(
+                RECOMMENDED_PLUGINS.map((p) => ({
+                  type: "ListTile",
+                  key: "tile_install_" + p.key,
+                  title: p.title,
+                  subtitle: lastInstalled[p.repo] === true ? "Instalado" : p.subtitle,
+                  trailing: { type: "Icon", name: lastInstalled[p.repo] === true ? "check" : "download" },
+                  onTap: "install_plugin_" + p.key
+                }))
+              )
+            },
+            {
+              type: "Card",
               key: "card_about",
               padding: 16,
               variant: "outlined",
@@ -2248,11 +2293,21 @@ export async function screen({ state, route, device, size, lang }) {
       labelTextEn: "Search music",
       onPressed: "open_search"
     } : null,
+    // Back on the search view goes back to the tab it came from (Flutter's PopScope); the next Back leaves to Home.
+    onBack: tab === "search" ? "close_search" : null,
+    appBar: tab === "search" ? {
+      type: "AppBar",
+      mergeWithKinoBar: true,
+      leading: { type: "IconButton", key: "search_back", icon: "arrow_back", labelText: "Volver", labelTextEn: "Back", onPressed: "close_search" },
+      title: "Buscar",
+      titleEn: "Search"
+    } : null,
     body: bodyNode
   };
 }
 
-export async function screenEvent({ name, arg, value, state, route, device, lang }) {
+export async function screenEvent({ name, arg, value, state, route, device, lang, installed }) {
+  lastInstalled = installed || {};
   kino.log("ytmusic screenEvent called:", { name, arg, value, stateInputs: state && state.inputs });
   const s = Object.assign({}, state || {});
 
@@ -2439,7 +2494,7 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
   if (name === "do_search" || name === "searched") {
     const q = String(value || arg || (s.inputs && (s.inputs.searchQuery || s.inputs.search)) || "").trim();
     if (!q) {
-      return { toast: "Escribe algo para buscar" };
+      return { toast: "Escribe algo para buscar", ui: [{ hide: "search_loading_card" }] };
     }
     s.searching = true;
     s.searched = true;
@@ -2453,7 +2508,7 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
       s.searchResults = [];
     }
     s.searching = false;
-    return { state: s };
+    return { state: s, ui: [{ hide: "search_loading_card" }] };
   }
 
   if (name === "generate_ai") {
@@ -2504,6 +2559,12 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
   if (name === "toggle_quality_setting") {
     const cur = kino.config.get("quality") === "opus" ? "aac" : "opus";
     return { state: s, config: { quality: cur }, toast: "Formato: " + cur.toUpperCase() };
+  }
+
+  if (name.startsWith("install_plugin_")) {
+    const wanted = RECOMMENDED_PLUGINS.find((p) => "install_plugin_" + p.key === name);
+    if (!wanted) return { state: s };
+    return { state: s, go: { installPlugin: { repo: wanted.repo } } };
   }
 
   if (name === "toggle_8d_setting") {

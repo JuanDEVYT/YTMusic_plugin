@@ -1,3 +1,5 @@
+> **Versión de Kino con letras y búsqueda mejorada** (fork de [JuanDEVYT/YTMusic_plugin](https://github.com/JuanDEVYT/YTMusic_plugin), con licencia Apache 2.0, todo el crédito del plugin es de Juan). Cambios sobre la 0.5.16: cada canción lleva el id de YouTube (`ids.youtube`) para que las letras sean exactas; la pestaña Ajustes ofrece instalar los plugins de letras (`recommends`, con estado "Instalado"); la búsqueda tiene una sola barra con flecha de atrás, spinner y el Atrás del sistema vuelve a la pestaña anterior (`onBack`, `mergeWithKinoBar`). Necesita Kino 0.9.81 o superior para estas mejoras; con uno anterior funciona como el original. No aparece en la tienda de Kino (`"discoverable": false`): se instala escribiendo `kinotvapp/YTMusic_plugin` en Agregar plugin.
+
 # YouTube Music para Kino
 
 Plugin de música para Kino (apiVersion 8, Kino 0.9.54 o superior): busca, explora una sección propia, abre álbumes y listas, y reproduce el audio de YouTube Music. Con tu sesión, también ves tus **Me gusta** y **tus listas**.
