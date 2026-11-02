@@ -606,18 +606,30 @@ async function searchMore(cursor) {
 // -- Biblioteca (con sesión) ---------------------------------------------------------------------
 async function libraryRows() {
   const rows = [];
-  const [likedData, listsData, historyData] = await Promise.all([
+  const [likedData, listsData, ownedListsData, libraryData, historyData] = await Promise.all([
     safe("library liked", () => yt("browse", { browseId: "VLLM" }), null),
     safe("library lists", () => yt("browse", { browseId: "FEmusic_liked_playlists" }), null),
+    safe("library owned lists", () => yt("browse", { browseId: "FEmusic_library_playlists" }), null),
+    safe("library home", () => yt("browse", { browseId: "FEmusic_library" }), null),
     safe("library history", () => yt("browse", { browseId: "FEmusic_history" }), null),
   ]);
   if (likedData) {
     const items = collectItems(shelfOf(likedData)).filter((x) => x.type === "track" && keep(x)).slice(0, 60).map(toItem);
     if (items.length) rows.push({ id: "yt-liked", title: "Canciones que te gustan", items, ref: "b:VLLM", genre: "musica" });
   }
-  if (listsData) {
-    const items = collectItems(listsData).filter((x) => x.type === "browse" && x.id !== "VLLM" && keep(x)).slice(0, 60).map(toItem);
-    if (items.length) rows.push({ id: "yt-lists", title: "Tus listas", items, ref: "b:FEmusic_liked_playlists", genre: "musica" });
+  const playlistItems = [];
+  const seenPlaylistIds = new Set();
+  for (const data of [ownedListsData, listsData, libraryData]) {
+    if (!data) continue;
+    for (const item of collectItems(data)) {
+      if (item.type !== "browse" || !keep(item) || seenPlaylistIds.has(item.id)) continue;
+      seenPlaylistIds.add(item.id);
+      playlistItems.push(toItem(item));
+      if (playlistItems.length >= 60) break;
+    }
+  }
+  if (playlistItems.length) {
+    rows.push({ id: "yt-lists", title: "Tus listas de reproducción", items: playlistItems, ref: "b:FEmusic_library_playlists", genre: "musica" });
   }
   if (historyData) {
     const items = collectItems(historyData).filter((x) => x.type === "track" && keep(x)).slice(0, 40).map(toItem);
@@ -1538,6 +1550,7 @@ function parseItemType(ref, badges) {
     idPart: m ? m[2] : r.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 32),
     isArtist,
     isAlbum,
+    isPlaylist: type === "b" && (r.startsWith("b:VLPL") || r.startsWith("b:PL") || r.startsWith("b:RD")),
     isTrack: !isArtist && !isAlbum
   };
 }
@@ -1598,18 +1611,18 @@ export async function screen({ state, route, device, size, lang }) {
 
     const children = [];
 
-    // Hero destacado en la cabecera
+    // Hero compacto recupera jerarquía visual sin empujar los carruseles bajo el primer pliegue.
     if (featuredHero) {
       children.push({
         type: "heroCard",
         key: "hero_trend",
         title: "Tendencias Musicales",
-        text: featuredHero.title ? ("Destacado: " + featuredHero.title) : "Lo más escuchado en YouTube Music",
-        image: featuredHero.poster || "https://i.ytimg.com/vi/cYT325Fe9zU/hqdefault.jpg"
+        text: featuredHero.title ? "Destacado: " + featuredHero.title : "Descubre música en YouTube Music",
+        image: featuredHero.poster || ""
       });
     }
 
-    // Filtros de categoría rápida
+    // Filtros de categoría rápida.
     children.push({
       type: "Card",
       key: "trend_filter_card",
@@ -1953,10 +1966,12 @@ export async function screen({ state, route, device, size, lang }) {
 
     if (hasSess) {
       const tracks = [];
+      const playlists = [];
       const others = [];
       for (const it of rawLib) {
         const meta = parseItemType(it.ref, it.badges);
         if (meta.isTrack) tracks.push(it);
+        else if (meta.isPlaylist || String(it.ref || "").startsWith("b:")) playlists.push(it);
         else others.push(it);
       }
 
@@ -1983,11 +1998,19 @@ export async function screen({ state, route, device, size, lang }) {
       if (!s.libraryLoaded) {
         children.push({ type: "Skeleton", key: "skel_lib", variant: "list", rows: 8, padding: 12 });
       } else if (rawLib.length) {
-        if (others.length) {
+        if (playlists.length) {
           children.push({
             type: "titleRail",
             key: "lib_rail_playlists",
-            title: "Tus Listas y Álbumes Guardados",
+            title: "Tus listas de reproducción",
+            items: playlists
+          });
+        }
+        if (others.length) {
+          children.push({
+            type: "titleRail",
+            key: "lib_rail_albums",
+            title: "Álbumes guardados",
             items: others
           });
         }
@@ -2013,8 +2036,8 @@ export async function screen({ state, route, device, size, lang }) {
         children.push({
           type: "emptyState",
           key: "lib_empty",
-          title: "Tu biblioteca está vacía",
-          text: "Tus listas y canciones guardadas de YouTube Music aparecerán aquí.",
+          title: s.libraryError ? "No se pudo cargar tu biblioteca" : "No se encontraron listas guardadas",
+          text: s.libraryError || "Comprueba que las listas estén guardadas en la biblioteca de YouTube Music y actualiza para volver a sincronizar.",
           icon: "music"
         });
       }
@@ -2194,34 +2217,7 @@ export async function screen({ state, route, device, size, lang }) {
 
   const actions = [];
 
-  if (tab === "search") {
-    actions.push({
-      type: "IconButton",
-      key: "appbar_close_search",
-      icon: "close",
-      labelText: "Cerrar buscador",
-      labelTextEn: "Close search",
-      onPressed: "close_search"
-    });
-  } else {
-    actions.push({
-      type: "IconButton",
-      key: "appbar_search_btn",
-      icon: "search",
-      labelText: "Buscar",
-      labelTextEn: "Search",
-      onPressed: "open_search"
-    });
-  }
-
-  actions.push({
-    type: "IconButton",
-    key: "appbar_refresh",
-    icon: "refresh",
-    labelText: "Actualizar",
-    labelTextEn: "Refresh",
-    onPressed: "refresh_screen"
-  });
+  // No actions in AppBar — search via FAB, refresh via screenEvent "open"
 
   return {
     type: "Scaffold",
@@ -2229,8 +2225,8 @@ export async function screen({ state, route, device, size, lang }) {
     appBar: {
       type: "AppBar",
       key: "ytm_app_bar",
-      title: "",
-      titleEn: "",
+      title: tab === "search" ? "Buscar música" : "YouTube Music",
+      titleEn: tab === "search" ? "Search music" : "YouTube Music",
       elevation: 2,
       actions,
       bottom: tab !== "search" ? {
@@ -2301,9 +2297,11 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
           }
         }
         s.libraryItems = lItems;
+        s.libraryError = "";
         s.libraryLoaded = true;
       } catch (e) {
         kino.log("ytmusic screenEvent: error loading library:", e && e.message);
+        s.libraryError = "No se pudieron cargar las listas. Revisa la sesión y vuelve a sincronizar.";
         s.libraryLoaded = true;
       }
     } else {
@@ -2335,7 +2333,19 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
 
   if (name === "switch_screen_tab_library") {
     s.tab = "library";
-    return { state: s };
+    s.libraryLoaded = false;
+    if (savedCookie()) {
+      try {
+        const rows = await libraryRows();
+        s.libraryItems = rows.flatMap((r) => r.items || []);
+        s.libraryError = "";
+      } catch (e) {
+        kino.log("ytmusic screenEvent: library reload failed:", e && e.message);
+        s.libraryError = "No se pudieron cargar las listas. Revisa la sesión y vuelve a sincronizar.";
+      }
+    }
+    s.libraryLoaded = true;
+    return { state: s, toast: s.libraryItems && s.libraryItems.length ? "Biblioteca sincronizada" : undefined };
   }
 
   if (name === "filter_trending") {
