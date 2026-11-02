@@ -2542,8 +2542,8 @@ export async function screen({ state, route, device, size, lang, installed }) {
                   key: "about_tile",
                   title: "Acerca de YTMusic para Kino",
                   titleEn: "About YTMusic for Kino",
-                  subtitle: "Versión 0.5.19 · Creado por JuandreXter",
-                  subtitleEn: "Version 0.5.19 · Created by JuandreXter",
+                  subtitle: "Versión 0.5.20 · Creado por JuandreXter",
+                  subtitleEn: "Version 0.5.20 · Created by JuandreXter",
                   leading: { type: "CircleAvatar", key: "about_avatar", radius: 24, icon: "info" },
                   dense: true
                 }
