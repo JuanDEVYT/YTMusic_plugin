@@ -609,8 +609,9 @@ async function libraryRows() {
   const [likedData, listsData, ownedListsData, libraryData, historyData] = await Promise.all([
     safe("library liked", () => yt("browse", { browseId: "VLLM" }), null),
     safe("library lists", () => yt("browse", { browseId: "FEmusic_liked_playlists" }), null),
-    safe("library owned lists", () => yt("browse", { browseId: "FEmusic_library_playlists" }), null),
-    safe("library home", () => yt("browse", { browseId: "FEmusic_library" }), null),
+    // Estos dos browseId no son compatibles con el cliente WEB_REMIX y devuelven unavailable.
+    Promise.resolve(null),
+    Promise.resolve(null),
     safe("library history", () => yt("browse", { browseId: "FEmusic_history" }), null),
   ]);
   if (likedData) {
@@ -1649,7 +1650,9 @@ export async function screen({ state, route, device, size, lang }) {
       ]
     });
 
-    if (!s.trendingLoaded) {
+    // Kino puede restaurar trendingLoaded sin restaurar rails tras cerrar/abrir la mini-app.
+    // Sin filas, conservamos Skeleton en vez de una portada vacía.
+    if (!s.trendingLoaded || !rails.length) {
       children.push({ type: "Skeleton", key: "skel_trend", variant: "list", rows: 8, padding: 12 });
     } else if (filter === "all") {
       // Vista completa con carruseles horizontales nativos (titleRail)
@@ -2215,33 +2218,29 @@ export async function screen({ state, route, device, size, lang }) {
     };
   }
 
-  const actions = [];
+  const tabs = tab !== "search" ? {
+    type: "TabBar",
+    key: "ytm_tab_bar",
+    value: tab,
+    onChanged: "switch_screen_tab",
+    tabs: [
+      { value: "trending", label: "Explorar", labelEn: "Explore" },
+      { value: "ai", label: "Playlist IA", labelEn: "AI Playlist" },
+      { value: "library", label: "Mi Música", labelEn: "My Music" },
+      { value: "account", label: "Ajustes", labelEn: "Settings" }
+    ]
+  } : null;
 
-  // No actions in AppBar — search via FAB, refresh via screenEvent "open"
+  // Kino ya dibuja el encabezado nativo del plugin. Las pestañas viven en el cuerpo.
+  const screenBody = tabs ? {
+    type: "Column",
+    key: "ytm_screen_content",
+    children: [tabs, bodyNode]
+  } : bodyNode;
 
   return {
     type: "Scaffold",
     key: "ytm_main_scaffold",
-    appBar: {
-      type: "AppBar",
-      key: "ytm_app_bar",
-      title: tab === "search" ? "Buscar música" : "YouTube Music",
-      titleEn: tab === "search" ? "Search music" : "YouTube Music",
-      elevation: 2,
-      actions,
-      bottom: tab !== "search" ? {
-        type: "TabBar",
-        key: "ytm_tab_bar",
-        value: tab,
-        onChanged: "switch_screen_tab",
-        tabs: [
-          { value: "trending", label: "Explorar", labelEn: "Explore" },
-          { value: "ai", label: "Playlist IA", labelEn: "AI Playlist" },
-          { value: "library", label: "Mi Música", labelEn: "My Music" },
-          { value: "account", label: "Ajustes", labelEn: "Settings" }
-        ]
-      } : null
-    },
     floatingActionButton: tab !== "search" ? {
       type: "FloatingActionButton",
       key: "fab_search",
@@ -2250,7 +2249,7 @@ export async function screen({ state, route, device, size, lang }) {
       labelTextEn: "Search music",
       onPressed: "open_search"
     } : null,
-    body: bodyNode
+    body: screenBody
   };
 }
 
