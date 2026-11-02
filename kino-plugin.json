@@ -1,7 +1,7 @@
 {
   "id": "ytmusic",
   "name": "YouTube Music",
-  "version": "0.5.15",
+  "version": "0.5.16",
   "apiVersion": 8,
   "entry": "plugin.js",
   "description": "YouTube Music con interfaz de exploración por carruseles, búsqueda limpia, Playlist IA y biblioteca personal.",

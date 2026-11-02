@@ -2231,12 +2231,11 @@ export async function screen({ state, route, device, size, lang }) {
     ]
   } : null;
 
-  // Kino ya dibuja el encabezado nativo del plugin. Las pestañas viven en el cuerpo.
-  const screenBody = tabs ? {
-    type: "Column",
-    key: "ytm_screen_content",
-    children: [tabs, bodyNode]
-  } : bodyNode;
+  // Cada sección ya es un ScrollView. Insertar las pestañas en ese mismo scroll
+  // evita que un Column padre sin altura deje el contenido invisible en Kino TV.
+  if (tabs && bodyNode && bodyNode.children && bodyNode.children[0] && bodyNode.children[0].children) {
+    bodyNode.children[0].children.unshift(tabs);
+  }
 
   return {
     type: "Scaffold",
@@ -2249,7 +2248,7 @@ export async function screen({ state, route, device, size, lang }) {
       labelTextEn: "Search music",
       onPressed: "open_search"
     } : null,
-    body: screenBody
+    body: bodyNode
   };
 }
 
