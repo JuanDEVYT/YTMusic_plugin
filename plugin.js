@@ -2322,6 +2322,24 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
 
   if (name === "switch_screen_tab") {
     s.tab = value || "trending";
+    // TabBar envía este evento con value: "library". Recargar aquí evita
+    // depender del botón secundario switch_screen_tab_library.
+    if (s.tab === "library") {
+      s.libraryLoaded = false;
+      if (savedCookie()) {
+        try {
+          const rows = await libraryRows();
+          s.libraryItems = rows.flatMap((r) => r.items || []);
+          s.libraryError = "";
+          kino.log("ytmusic screenEvent: library synced items:", s.libraryItems.length);
+        } catch (e) {
+          kino.log("ytmusic screenEvent: library reload failed:", e && e.message);
+          s.libraryError = "No se pudieron cargar las listas. Revisa la sesión y vuelve a sincronizar.";
+        }
+      }
+      s.libraryLoaded = true;
+      return { state: s, toast: s.libraryItems && s.libraryItems.length ? "Biblioteca sincronizada" : undefined };
+    }
     return { state: s };
   }
 
