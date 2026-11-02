@@ -102,6 +102,13 @@ function savedCookie() {
   return joinCookie(COOKIE_KEYS.map((k) => kino.config.get(k)));
 }
 
+// Whether the screen shows an active account. Kino writes or clears the cookie settings only after the call that asked, so the
+// screen's own state (linkedNow / sessionOff, set by link_account and logout_session) decides in between.
+function sessionActive(s) {
+  if (s && s.sessionOff === true) return false;
+  return !!savedCookie() || (s && s.linkedNow === true);
+}
+
 function authHeaders(cookie) {
   if (!cookie) return {};
   const h = { Cookie: cookie, "X-Goog-AuthUser": "0" };
@@ -445,6 +452,8 @@ function toItem(x) {
   if (x.type === "track") {
     it.id = "t." + x.id;
     it.ref = trackRef(x.id, x.title);
+    // Kino 0.9.81 (apiVersion 19): the video id, so a lyrics plugin finds the exact recording. Older Kinos ignore it.
+    it.ids = { youtube: String(x.id).slice(0, 64) };
     badges.push(x.video ? "Video" : "Canción");
   } else if (x.type === "artist") {
     it.id = "a." + x.id;
@@ -463,6 +472,118 @@ function toItem(x) {
   if (x.minutes) it.runtimeMinutes = x.minutes;
   if (x.type === "track" && x.album) it.overview = ("Álbum: " + x.album).slice(0, 2000);
   return it;
+}
+
+// Plugins that add to this one. Each becomes a tile in Ajustes; pressing it opens Kino's own "Agregar un plugin" with the repo
+// filled in (go.installPlugin, apiVersion 19), where the person confirms the install. Add an entry to offer another.
+const RECOMMENDED_PLUGINS = [
+  {
+    key: "lyrics_ytmusic",
+    title: "Letras de YouTube Music",
+    subtitle: "Instala las letras de YouTube Music: aparece un botón Letra en el reproductor",
+    repo: "kinotvapp/kino-plugin-lyrics-ytmusic"
+  },
+  {
+    key: "lyrics_lrclib",
+    title: "Letras de LRCLIB",
+    subtitle: "Instala las letras de LRCLIB, con la letra sincronizada línea a línea",
+    repo: "kinotvapp/kino-plugin-lyrics-lrclib"
+  }
+];
+
+// Kino tells every call which of the manifest's "recommends" are installed now ({ "owner/name": true|false }, apiVersion 19).
+let lastInstalled = {};
+
+// Pressing search: at once (no plugin call) show the spinner card and move the focus onto it, which drops the keyboard; then search.
+const SEARCH_ACTION = { ui: [{ show: "search_loading_card" }, { focus: "search_loading_card" }], event: "do_search" };
+
+// Two ways to link the account, in one accordion: the web window Kino opens (kino.visualBrowser, Kino 0.9.81+) and, as the
+// original plugin always offered, pasting the cookies by hand following the guide. Without the window only the guide shows.
+function accountOptionsNode() {
+  const canBrowser = !!(kino.visualBrowser && kino.visualBrowser.available);
+  const manual = {
+    key: "opt_manual",
+    title: "Pegando las cookies (manual)",
+    titleEn: "Pasting the cookies (manual)",
+    open: !canBrowser,
+    children: [
+      {
+        type: "Text",
+        key: "opt_manual_txt",
+        text: "Copia las cookies de tu sesión de YouTube Music y pégalas en Mi Música, siguiendo la guía paso a paso.",
+        textEn: "Copy the cookies of your YouTube Music session and paste them in My Music, following the step-by-step guide.",
+        color: "muted"
+      },
+      {
+        type: "ElevatedButton",
+        key: "btn_go_login_guide",
+        labelText: "Abrir guía de inicio de sesión",
+        labelTextEn: "Open the sign-in guide",
+        icon: "info",
+        onPressed: "switch_screen_tab_library"
+      }
+    ]
+  };
+  if (!canBrowser) return { type: "ExpansionTile", key: "acc_options", items: [manual] };
+  return {
+    type: "ExpansionTile",
+    key: "acc_options",
+    items: [
+      {
+        key: "opt_browser",
+        title: "Con el navegador (recomendado)",
+        titleEn: "With the browser (recommended)",
+        open: true,
+        children: [
+          {
+            type: "Text",
+            key: "opt_browser_txt",
+            text: "Inicias sesión con Google en una ventana de Kino. Kino guarda las cookies por el plugin: no tienes que copiar nada.",
+            textEn: "You sign in with Google in a Kino window. Kino keeps the cookies for the plugin: you copy nothing.",
+            color: "muted"
+          },
+          {
+            type: "ElevatedButton",
+            key: "btn_link_browser",
+            labelText: "Vincular cuenta YT Music",
+            labelTextEn: "Link YT Music account",
+            icon: "person",
+            onPressed: "link_account"
+          }
+        ]
+      },
+      manual
+    ]
+  };
+}
+
+// The cookies YouTube Music needs to treat the person as themselves (not a guest): the session ones plus LOGIN_INFO and the
+// visitor ones. Kino writes them as one header cut across cookieA..cookieD (500 characters each), which joinCookie() joins again.
+const LINK_COOKIES = [
+  "SID", "HSID", "SSID", "APISID", "SAPISID",
+  "__Secure-1PSID", "__Secure-3PSID", "__Secure-1PAPISID", "__Secure-3PAPISID",
+  "__Secure-1PSIDTS", "__Secure-3PSIDTS", "LOGIN_INFO", "VISITOR_INFO1_LIVE", "YSC"
+];
+
+// Asks YouTube Music who the saved cookies are: a session it does not recognise answers 200 with guest content, so the 200 alone
+// proves nothing. Logs only the cookie NAMES (never a value) and keeps the result for the account card.
+async function checkSession(s) {
+  const cookie = savedCookie();
+  if (!cookie) {
+    s.accountChecked = false;
+    s.accountName = "";
+    return;
+  }
+  kino.log("ytmusic account: cookie names", Object.keys(parseCookie(cookie)).join(","));
+  try {
+    const name = await accountName(cookie);
+    s.accountName = name || "";
+    s.accountChecked = true;
+    kino.log("ytmusic account: " + (name ? "recognised" : "NOT recognised"));
+  } catch (e) {
+    s.accountChecked = false;
+    kino.log("ytmusic account: check failed", (e && e.code) || "error");
+  }
 }
 
 // Ajuste "Ocultar contenido explícito".
@@ -1615,7 +1736,8 @@ function renderMusicTile(item, idx, prefix = "tr_") {
   };
 }
 
-export async function screen({ state, route, device, size, lang }) {
+export async function screen({ state, route, device, size, lang, installed }) {
+  lastInstalled = installed || {};
   const s = state || {};
   const tab = s.tab || "trending";
 
@@ -1627,6 +1749,32 @@ export async function screen({ state, route, device, size, lang }) {
     const featuredHero = s.heroItem || (rails[0]?.items?.[0]);
 
     const children = [];
+
+    // The Inicio on screen was loaded before the account changed (linked or logged out): offer to load it again.
+    if (s.trendingLoaded && s.railsAuth !== sessionActive(s)) {
+      children.push({
+        type: "Card",
+        key: "card_reload_home",
+        padding: 16,
+        variant: "outlined",
+        children: [
+          {
+            type: "Text",
+            key: "reload_home_txt",
+            text: sessionActive(s) ? "Tu cuenta ya está vinculada. Carga tu Inicio para ver tu música." : "Cerraste sesión. Actualiza para volver al Inicio general.",
+            textEn: sessionActive(s) ? "Your account is linked. Load your Home to see your music." : "You logged out. Refresh to go back to the general Home."
+          },
+          {
+            type: "ElevatedButton",
+            key: "btn_reload_home",
+            labelText: sessionActive(s) ? "Cargar mi Inicio" : "Actualizar",
+            labelTextEn: sessionActive(s) ? "Load my Home" : "Refresh",
+            icon: "refresh",
+            onPressed: "refresh_screen"
+          }
+        ]
+      });
+    }
 
     // Hero compacto recupera jerarquía visual sin empujar los carruseles bajo el primer pliegue.
     if (featuredHero) {
@@ -1802,11 +1950,11 @@ export async function screen({ state, route, device, size, lang }) {
             labelTextEn: "Search YouTube Music",
             hintText: "Canción, artista, álbum o playlist...",
             hintTextEn: "Song, artist, album or playlist...",
-            onSubmit: "do_search",
+            onSubmitted: SEARCH_ACTION,
             trailingIcon: "search",
             trailingLabel: "Buscar",
             trailingLabelEn: "Search",
-            onTrailingTap: "do_search"
+            onTrailingTap: SEARCH_ACTION
           },
           {
             type: "Text",
@@ -1847,12 +1995,14 @@ export async function screen({ state, route, device, size, lang }) {
       ]
     });
 
-    if (s.searching) {
-      children.push({
+    // The spinner card always exists, hidden: pressing search shows it before the plugin is even called (SEARCH_ACTION).
+    children.push({
         type: "Card",
         key: "search_loading_card",
         padding: 24,
         align: "center",
+        hidden: true,
+        canRequestFocus: true,
         children: [
           {
             type: "CircularProgressIndicator",
@@ -1862,6 +2012,7 @@ export async function screen({ state, route, device, size, lang }) {
           }
         ]
       });
+    if (s.searching) {
       children.push({ type: "Skeleton", key: "skel_search", variant: "list", rows: 6, padding: 12 });
     } else if (rawResults.length && (shownTracks.length || shownOthers.length)) {
       // Resultados encontrados con organización profesional
@@ -2055,7 +2206,7 @@ export async function screen({ state, route, device, size, lang }) {
   } else if (tab === "library") {
     const rawLib = s.libraryItems || [];
     const filter = s.libFilter || "all";
-    const hasSess = !!savedCookie();
+    const hasSess = sessionActive(s);
 
     if (hasSess) {
       const tracks = [];
@@ -2286,7 +2437,10 @@ export async function screen({ state, route, device, size, lang }) {
     }
   } else {
     // tab === "account"
-    const hasSess = !!savedCookie();
+    const hasSess = sessionActive(s);
+    const is8d = kino.config.get("audio8d") === true;
+    const qual = kino.config.get("quality") || "aac";
+    const sessionBad = hasSess && s.accountChecked && !s.accountName;
     bodyNode = {
       type: "SingleChildScrollView",
       key: "acc_scroll",
@@ -2308,20 +2462,35 @@ export async function screen({ state, route, device, size, lang }) {
                   key: "acc_status_tile",
                   title: "Cuenta de YouTube Music",
                   titleEn: "YouTube Music account",
-                  subtitle: hasSess ? "Sesión activa y sincronizada" : "Modo invitado (sin sesión)",
-                  subtitleEn: hasSess ? "Session active and synced" : "Guest mode (no session)",
-                  leading: { type: "CircleAvatar", key: "acc_avatar", radius: 24, icon: hasSess ? "check" : "person" },
-                  trailing: { type: "Icon", key: "acc_status_icon", name: hasSess ? "check" : "info" }
+                  subtitle: !hasSess ? "Modo invitado (sin sesión)"
+                    : sessionBad ? "YouTube no reconoce esta sesión"
+                    : s.accountName ? "Sesión activa como " + s.accountName
+                    : "Sesión activa y sincronizada",
+                  subtitleEn: !hasSess ? "Guest mode (no session)"
+                    : sessionBad ? "YouTube does not recognise this session"
+                    : s.accountName ? "Session active as " + s.accountName
+                    : "Session active and synced",
+                  leading: { type: "CircleAvatar", key: "acc_avatar", radius: 24, icon: !hasSess ? "person" : sessionBad ? "info" : "check" },
+                  trailing: { type: "Icon", key: "acc_status_icon", name: !hasSess ? "info" : sessionBad ? "info" : "check" }
                 },
-                ...(hasSess ? [] : [
+                ...(hasSess ? [
                   {
                     type: "ElevatedButton",
-                    key: "btn_go_login_guide",
-                    labelText: "Abrir guía de inicio de sesión",
-                    labelTextEn: "Open sign-in guide",
-                    icon: "info",
-                    onPressed: "switch_screen_tab_library"
+                    key: "btn_linked",
+                    labelText: "Cuenta vinculada",
+                    labelTextEn: "Account linked",
+                    icon: "check",
+                    enabled: false
+                  },
+                  {
+                    type: "TextButton",
+                    key: "btn_logout",
+                    labelText: "Cerrar sesión",
+                    labelTextEn: "Log out",
+                    onPressed: "logout_session"
                   }
+                ] : [
+                  accountOptionsNode()
                 ])
               ]
             },
@@ -2348,6 +2517,22 @@ export async function screen({ state, route, device, size, lang }) {
             },
             {
               type: "Card",
+              key: "card_recommended",
+              padding: 16,
+              variant: "outlined",
+              children: [{ type: "Text", key: "rec_head", text: "Plugins recomendados", style: "h3" }].concat(
+                RECOMMENDED_PLUGINS.map((p) => ({
+                  type: "ListTile",
+                  key: "tile_install_" + p.key,
+                  title: p.title,
+                  subtitle: lastInstalled[p.repo] === true ? "Instalado" : p.subtitle,
+                  trailing: { type: "Icon", name: lastInstalled[p.repo] === true ? "check" : "download" },
+                  onTap: "install_plugin_" + p.key
+                }))
+              )
+            },
+            {
+              type: "Card",
               key: "card_about",
               padding: 16,
               variant: "outlined",
@@ -2357,8 +2542,8 @@ export async function screen({ state, route, device, size, lang }) {
                   key: "about_tile",
                   title: "Acerca de YTMusic para Kino",
                   titleEn: "About YTMusic for Kino",
-                  subtitle: "Versión 0.5.17 · Creado por JuandreXter",
-                  subtitleEn: "Version 0.5.17 · Created by JuandreXter",
+                  subtitle: "Versión 0.5.19 · Creado por JuandreXter",
+                  subtitleEn: "Version 0.5.19 · Created by JuandreXter",
                   leading: { type: "CircleAvatar", key: "about_avatar", radius: 24, icon: "info" },
                   dense: true
                 }
@@ -2400,15 +2585,30 @@ export async function screen({ state, route, device, size, lang }) {
       labelTextEn: "Search music",
       onPressed: "open_search"
     } : null,
+    // Back on the search view goes back to the tab it came from (Flutter's PopScope); the next Back leaves to Home.
+    onBack: tab === "search" ? "close_search" : null,
+    appBar: tab === "search" ? {
+      type: "AppBar",
+      mergeWithKinoBar: true,
+      leading: { type: "IconButton", key: "search_back", icon: "arrow_back", labelText: "Volver", labelTextEn: "Back", onPressed: "close_search" },
+      title: "Buscar",
+      titleEn: "Search"
+    } : null,
     body: bodyNode
   };
 }
 
-export async function screenEvent({ name, arg, value, state, route, device, lang }) {
+export async function screenEvent({ name, arg, value, state, route, device, lang, installed }) {
+  lastInstalled = installed || {};
   kino.log("ytmusic screenEvent called:", { name, arg, value, stateInputs: state && state.inputs });
   const s = Object.assign({}, state || {});
 
-  if (name === "open" || name === "refresh_screen") {
+  // "account_linked": Kino saved the cookies (storeAs.thenEvent) and tells the screen; it reloads like a refresh, now with the account.
+  if (name === "open" || name === "refresh_screen" || name === "account_linked") {
+    // On a reload the saved cookies are the truth again (the screen-only flags of link_account / logout_session end here).
+    s.sessionOff = false;
+    s.linkedNow = false;
+    await checkSession(s);
     kino.log("ytmusic screenEvent: loading charts and home rows");
     try {
       const [homeRows, sectionData] = await Promise.all([
@@ -2429,10 +2629,13 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
       s.rails = rails;
       s.heroItem = rails[0]?.items?.[0] || null;
       s.trendingLoaded = true;
+      // Whether this Inicio was asked with the account: after linking or logging out the screen offers to load it again.
+      s.railsAuth = sessionActive(s);
       kino.log("ytmusic screenEvent: rails loaded count:", rails.length);
     } catch (e) {
       kino.log("ytmusic screenEvent: error loading trending:", e && e.message);
       s.trendingLoaded = true;
+      s.railsAuth = sessionActive(s);
     }
 
     if (savedCookie()) {
@@ -2591,7 +2794,7 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
   if (name === "do_search" || name === "searched") {
     const q = String(value || arg || (s.inputs && (s.inputs.searchQuery || s.inputs.search)) || "").trim();
     if (!q) {
-      return { toast: "Escribe algo para buscar" };
+      return { toast: "Escribe algo para buscar", ui: [{ hide: "search_loading_card" }] };
     }
     s.searching = true;
     s.searched = true;
@@ -2605,7 +2808,7 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
       s.searchResults = [];
     }
     s.searching = false;
-    return { state: s };
+    return { state: s, ui: [{ hide: "search_loading_card" }] };
   }
 
   if (name === "generate_ai") {
@@ -2658,6 +2861,30 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     return { state: s, config: { quality: cur }, toast: "Formato: " + cur.toUpperCase() };
   }
 
+  if (name.startsWith("install_plugin_")) {
+    const wanted = RECOMMENDED_PLUGINS.find((p) => "install_plugin_" + p.key === name);
+    if (!wanted) return { state: s };
+    return { state: s, go: { installPlugin: { repo: wanted.repo } } };
+  }
+
+  if (name === "link_account") {
+    if (!(kino.visualBrowser && kino.visualBrowser.available)) {
+      return { state: s, toast: "Este aparato no permite vincular con el navegador. Usa la opción manual." };
+    }
+    // The cookies go straight into the first cookie setting (Kino writes them; this script never sees them).
+    const r = await kino.visualBrowser.open({
+      url: "https://accounts.google.com/ServiceLogin?service=youtube&continue=" + encodeURIComponent("https://music.youtube.com/"),
+      title: "YouTube Music",
+      userAgent: "browser",
+      doneWhen: { cookies: ["SAPISID"] },
+      collect: { cookies: LINK_COOKIES, storeAs: { setting: "cookieA", spill: ["cookieB", "cookieC", "cookieD"], format: "header", thenEvent: "account_linked" } },
+      timeoutMs: 600000
+    });
+    // Kino writes the cookies once this call ends; linkedNow shows the linked state at once, until the setting is read.
+    if (r.status === "done" && r.stored) return { state: Object.assign({}, s, { linkedNow: true, sessionOff: false }), toast: "Cuenta vinculada" };
+    return { state: s, toast: r.status === "closed" ? "No se vinculó la cuenta" : "No se pudo vincular la cuenta" };
+  }
+
   if (name === "toggle_8d_setting") {
     const cur = kino.config.get("audio8d") === true;
     return { state: s, config: { audio8d: !cur }, toast: !cur ? "Audio 8D activado" : "Audio 8D desactivado" };
@@ -2665,7 +2892,7 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
 
   if (name === "logout_session") {
     return {
-      state: Object.assign({}, s, { libraryItems: [] }),
+      state: Object.assign({}, s, { libraryItems: [], linkedNow: false, sessionOff: true }),
       clearSettings: COOKIE_KEYS.slice(),
       toast: "Sesión cerrada"
     };
