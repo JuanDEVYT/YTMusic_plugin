@@ -1,7 +1,7 @@
 {
   "id": "ytmusic",
   "name": "YouTube Music",
-  "version": "0.5.17",
+  "version": "0.5.18",
   "apiVersion": 8,
   "entry": "plugin.js",
   "description": "YouTube Music con interfaz de exploración por carruseles, búsqueda limpia, Playlist IA y biblioteca personal.",
@@ -13,6 +13,8 @@
   "hosts": [
     "music.youtube.com",
     "www.youtube.com",
+    "accounts.google.com",
+    "accounts.youtube.com",
     "*.googlevideo.com"
   ],
   "capabilities": [
@@ -178,6 +180,9 @@
         "labelEn": "YT Music",
         "icon": "music"
       }
+    },
+    "20": {
+      "visualBrowser": true
     }
   }
 }
