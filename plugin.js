@@ -10,7 +10,7 @@ const API = "https://music.youtube.com/youtubei/v1/";
 const ORIGIN = "https://music.youtube.com";
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
-const VERSION = "0.5.2";
+const VERSION = "0.5.21";
 // Cada ajuste "password" admite 500 caracteres como máximo (límite de Kino): por eso 4 partes = 2000.
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC", "cookieD"];
 
@@ -488,6 +488,12 @@ const RECOMMENDED_PLUGINS = [
     title: "Letras de LRCLIB",
     subtitle: "Instala las letras de LRCLIB, con la letra sincronizada línea a línea",
     repo: "kinotvapp/kino-plugin-lyrics-lrclib"
+  },
+  {
+    key: "lyrics_better",
+    title: "Letras de Better Lyrics",
+    subtitle: "Instala Better Lyrics, con la letra sincronizada línea a línea",
+    repo: "JuanDEVYT/BetterLyrics_plugin"
   }
 ];
 
@@ -2542,8 +2548,8 @@ export async function screen({ state, route, device, size, lang, installed }) {
                   key: "about_tile",
                   title: "Acerca de YTMusic para Kino",
                   titleEn: "About YTMusic for Kino",
-                  subtitle: "Versión 0.5.20 · Creado por JuandreXter",
-                  subtitleEn: "Version 0.5.20 · Created by JuandreXter",
+                  subtitle: "Versión 0.5.21 · Creado por JuandreXter",
+                  subtitleEn: "Version 0.5.21 · Created by JuandreXter",
                   leading: { type: "CircleAvatar", key: "about_avatar", radius: 24, icon: "info" },
                   dense: true
                 }
