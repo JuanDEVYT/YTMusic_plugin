@@ -9,7 +9,6 @@
   "creator": "JuandreXter",
   "homepage": "https://github.com/JuanDEVYT/YTMusic_plugin",
   "recommends": ["kinotvapp/kino-plugin-lyrics-ytmusic", "kinotvapp/kino-plugin-lyrics-lrclib", "JuanDEVYT/BetterLyrics_plugin"],
-  "discoverable": false,
   "hosts": [
     "music.youtube.com",
     "www.youtube.com",
