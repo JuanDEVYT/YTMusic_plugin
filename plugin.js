@@ -11,7 +11,7 @@ const API = "https://music.youtube.com/youtubei/v1/";
 const ORIGIN = "https://music.youtube.com";
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
-const VERSION = "0.6.1";
+const VERSION = "0.6.2";
 // Cada ajuste "password" admite 500 caracteres como máximo (límite de Kino): por eso 4 partes = 2000.
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC", "cookieD"];
 // Google Session (puerta "session" del protocolo entre plugins, apiVersion 20). Su entrega vive en kino.storage,
@@ -116,7 +116,12 @@ function savedCookie() {
 function sharedSessionCookie() {
   try {
     const raw = kino.storage.get(GSESSION_STORAGE_KEY);
-    return raw ? joinCookie([raw]) : "";
+    if (!raw) return "";
+    const header = joinCookie([raw]);
+    if (!header) return "";
+    const jar = parseCookie(header);
+    if (!jar.SAPISID && !jar["__Secure-3PAPISID"]) return "";
+    return header;
   } catch (e) {
     return "";
   }
@@ -607,8 +612,13 @@ async function pullSharedSession() {
   try {
     const r = await kino.plugins.call(GSESSION_ALIAS, "session", {});
     if (r.granted && r.linked && r.cookieHeader) {
+      const jar = parseCookie(r.cookieHeader);
+      if (!jar.SAPISID && !jar["__Secure-3PAPISID"]) {
+        kino.log("ytmusic gsession: pull got cookies but missing SAPISID, ignoring");
+        return false;
+      }
       kino.storage.set(GSESSION_STORAGE_KEY, r.cookieHeader);
-      kino.log("ytmusic gsession: pull ok (" + (r.verified ? "verified" : "not verified") + ")");
+      kino.log("ytmusic gsession: pull ok (" + (r.verified ? "verified" : "not verified") + ", " + Object.keys(jar).length + " cookies)");
       return true;
     }
     clearSharedSession();
