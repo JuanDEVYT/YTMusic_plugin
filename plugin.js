@@ -11,7 +11,7 @@ const API = "https://music.youtube.com/youtubei/v1/";
 const ORIGIN = "https://music.youtube.com";
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
-const VERSION = "0.6.2";
+const VERSION = "0.6.3";
 // Cada ajuste "password" admite 500 caracteres como máximo (límite de Kino): por eso 4 partes = 2000.
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC", "cookieD"];
 // Google Session (puerta "session" del protocolo entre plugins, apiVersion 20). Su entrega vive en kino.storage,
@@ -2984,7 +2984,7 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
       url: "https://accounts.google.com/ServiceLogin?service=youtube&continue=" + encodeURIComponent("https://music.youtube.com/"),
       title: "YouTube Music",
       userAgent: "browser",
-      doneWhen: { cookies: ["SAPISID"] },
+      doneWhen: { cookies: ["SAPISID", "__Secure-1PSIDTS"] },
       collect: { cookies: LINK_COOKIES, storeAs: { setting: "cookieA", spill: ["cookieB", "cookieC", "cookieD"], format: "header", thenEvent: "account_linked" } },
       timeoutMs: 600000
     });
