@@ -11,7 +11,7 @@ const API = "https://music.youtube.com/youtubei/v1/";
 const ORIGIN = "https://music.youtube.com";
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
-const VERSION = "0.6.0";
+const VERSION = "0.6.1";
 // Cada ajuste "password" admite 500 caracteres como máximo (límite de Kino): por eso 4 partes = 2000.
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC", "cookieD"];
 // Google Session (puerta "session" del protocolo entre plugins, apiVersion 20). Su entrega vive en kino.storage,
@@ -607,7 +607,7 @@ async function pullSharedSession() {
   try {
     const r = await kino.plugins.call(GSESSION_ALIAS, "session", {});
     if (r.granted && r.linked && r.cookieHeader) {
-      kino.storage.set(GSESSION_STORAGE_KEY, r.cookieHeader, { ttl: 7 * 86400 });
+      kino.storage.set(GSESSION_STORAGE_KEY, r.cookieHeader);
       kino.log("ytmusic gsession: pull ok (" + (r.verified ? "verified" : "not verified") + ")");
       return true;
     }
