@@ -1,8 +1,9 @@
 /// <reference path="./kino.d.ts" />
-// YouTube Music para Kino · apiVersion 8 (Kino 0.9.54 o superior)
+// YouTube Music para Kino · apiVersion 20 (Kino 0.9.84 o superior para la sesión compartida)
 //
 // - Catálogo (buscar, Inicio, álbumes, listas): API interna de music.youtube.com (cliente WEB_REMIX),
-//   con la sesión de la persona si pegó sus cookies en Ajustes.
+//   con la sesión de la persona si pegó sus cookies en Ajustes, si abrió su propia ventana o si la
+//   compartió Google Session (JuanDEVYT/google-session) con su permiso.
 // - Reproducción: la API /player con un cliente que entrega URLs directas de audio, sin descifrar firmas.
 //   Es la parte frágil: YouTube cambia estas reglas cada tanto. Todo lo que puede caducar está en CLIENTS.
 
@@ -13,6 +14,11 @@ const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/201001
 const VERSION = "0.5.21";
 // Cada ajuste "password" admite 500 caracteres como máximo (límite de Kino): por eso 4 partes = 2000.
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC", "cookieD"];
+// Google Session (puerta "session" del protocolo entre plugins, apiVersion 20). Su entrega vive en kino.storage,
+// que este plugin lee y BORRA en cuanto allá dejan de permitirla: nunca se imprime ni se manda a ningún registro.
+const GSESSION_ALIAS = "gsession";
+const GSESSION_REPO = "JuanDEVYT/google-session";
+const GSESSION_STORAGE_KEY = "gcookies";
 
 // Clientes para /player, en orden de preferencia. VISIONOS entrega URLs directas de audio que googlevideo
 // sirve completas y por rangos abiertos sin PO token (el que usa yt-dlp); IOS y ANDROID_VR piden ese token para
@@ -99,7 +105,25 @@ function joinCookie(parts) {
 }
 
 function savedCookie() {
+  const shared = sharedSessionCookie();
+  if (shared) return shared;
   return joinCookie(COOKIE_KEYS.map((k) => kino.config.get(k)));
+}
+
+// La sesión que Google Session comparte con este plugin (solo con el sí de la persona y mientras su permiso dure).
+// Se lee aquí en cada uso, así que una revocación corta en el acto; si no hay nada guardado se vuelve a los ajustes
+// propios (cookies pegadas a mano o de la ventana de este plugin), que siguen siendo el respaldo.
+function sharedSessionCookie() {
+  try {
+    const raw = kino.storage.get(GSESSION_STORAGE_KEY);
+    return raw ? joinCookie([raw]) : "";
+  } catch (e) {
+    return "";
+  }
+}
+
+function clearSharedSession() {
+  try { kino.storage.remove(GSESSION_STORAGE_KEY); } catch (e) { /* no estaba */ }
 }
 
 // Whether the screen shows an active account. Kino writes or clears the cookie settings only after the call that asked, so the
@@ -478,6 +502,12 @@ function toItem(x) {
 // filled in (go.installPlugin, apiVersion 19), where the person confirms the install. Add an entry to offer another.
 const RECOMMENDED_PLUGINS = [
   {
+    key: "google_session",
+    title: "Google Session",
+    subtitle: "Vincula tu cuenta de Google una sola vez y compártela con todos tus plugins, con tu permiso",
+    repo: "JuanDEVYT/google-session"
+  },
+  {
     key: "lyrics_ytmusic",
     title: "Letras de YouTube Music",
     subtitle: "Instala las letras de YouTube Music: aparece un botón Letra en el reproductor",
@@ -570,6 +600,57 @@ const LINK_COOKIES = [
   "__Secure-1PSID", "__Secure-3PSID", "__Secure-1PAPISID", "__Secure-3PAPISID",
   "__Secure-1PSIDTS", "__Secure-3PSIDTS", "LOGIN_INFO", "VISITOR_INFO1_LIVE", "YSC"
 ];
+
+// Pide la sesión al protocolo de Google Session (call "session") y si llega la guarda en kino.storage.
+// Solo se escribe el header; nunca se imprime ni se pone en el state. Si no llega, borra lo que hubiera.
+async function pullSharedSession() {
+  try {
+    const r = await kino.plugins.call(GSESSION_ALIAS, "session", {});
+    if (r.granted && r.linked && r.cookieHeader) {
+      kino.storage.set(GSESSION_STORAGE_KEY, r.cookieHeader, { ttl: 7 * 86400 });
+      kino.log("ytmusic gsession: pull ok (" + (r.verified ? "verified" : "not verified") + ")");
+      return true;
+    }
+    clearSharedSession();
+    kino.log("ytmusic gsession: pull empty (granted=" + r.granted + " linked=" + r.linked + ")");
+    return false;
+  } catch (e) {
+    clearSharedSession();
+    kino.log("ytmusic gsession: pull error", (e && e.code) || "unknown");
+    return false;
+  }
+}
+
+// Arranca el flujo de solicitud con Google Session: llama "begin" y navega a la pantalla consent del provider.
+// Si Google Session no está instalado, ofrece instalarlo una vez por sesión con un toast.
+let gsessionAskedInstall = false;
+async function requestGoogleSession(s) {
+  try {
+    const r = await kino.plugins.call(GSESSION_ALIAS, "begin", {});
+    if (r.state === "pending" && r.requestId) {
+      return {
+        state: s,
+        go: { plugin: { repo: GSESSION_REPO, route: "consent", args: { requestId: r.requestId } } },
+        toast: "Google Session te pide permiso"
+      };
+    }
+    return { state: s, toast: r.state === "unknownCaller" ? "Kino no reconoce este plugin (actualiza Kino)" : "No se pudo iniciar la sesión compartida" };
+  } catch (e) {
+    if (e && e.code === "provider_missing") {
+      if (!gsessionAskedInstall) {
+        gsessionAskedInstall = true;
+        return {
+          state: s,
+          go: { installPlugin: { repo: GSESSION_REPO } },
+          toast: "Instala Google Session para vincular tu cuenta sin copiar cookies"
+        };
+      }
+      return { state: s, toast: "Instala Google Session primero" };
+    }
+    kino.log("ytmusic gsession: begin error", (e && e.code) || "unknown");
+    return { state: s, toast: "No se pudo contactar Google Session" };
+  }
+}
 
 // Asks YouTube Music who the saved cookies are: a session it does not recognise answers 200 with guest content, so the 200 alone
 // proves nothing. Logs only the cookie NAMES (never a value) and keeps the result for the account card.
@@ -1619,6 +1700,7 @@ export async function settingsStatus() {
 export async function action(key) {
   await null;
   if (key !== "logout") return null;
+  clearSharedSession();
   return { message: "Sesión cerrada", clearSettings: COOKIE_KEYS.slice() };
 }
 
@@ -2614,6 +2696,8 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     // On a reload the saved cookies are the truth again (the screen-only flags of link_account / logout_session end here).
     s.sessionOff = false;
     s.linkedNow = false;
+    // If Google Session is installed, try to pull the shared session before anything else.
+    if (lastInstalled[GSESSION_REPO]) await pullSharedSession();
     await checkSession(s);
     kino.log("ytmusic screenEvent: loading charts and home rows");
     try {
@@ -2874,6 +2958,14 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
   }
 
   if (name === "link_account") {
+    // 1) If Google Session is installed, try the shared session protocol first.
+    if (lastInstalled[GSESSION_REPO]) {
+      const pulled = await pullSharedSession();
+      if (pulled) return { state: Object.assign({}, s, { linkedNow: true, sessionOff: false }), toast: "Cuenta vinculada con Google Session" };
+      // Not granted yet: start the begin→consent flow.
+      return await requestGoogleSession(s);
+    }
+    // 2) Fallback: own visualBrowser window.
     if (!(kino.visualBrowser && kino.visualBrowser.available)) {
       return { state: s, toast: "Este aparato no permite vincular con el navegador. Usa la opción manual." };
     }
@@ -2897,6 +2989,7 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
   }
 
   if (name === "logout_session") {
+    clearSharedSession();
     return {
       state: Object.assign({}, s, { libraryItems: [], linkedNow: false, sessionOff: true }),
       clearSettings: COOKIE_KEYS.slice(),
