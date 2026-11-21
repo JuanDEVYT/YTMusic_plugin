@@ -10,7 +10,7 @@ const API = "https://music.youtube.com/youtubei/v1/";
 const ORIGIN = "https://music.youtube.com";
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
-const VERSION = "0.6.8";
+const VERSION = "0.6.9";
 // Cada ajuste "password" admite 500 caracteres como máximo (límite de Kino): por eso 4 partes = 2000.
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC", "cookieD"];
 
@@ -25,6 +25,10 @@ try {
 // vista en kino.storage; al volver a cambiar de versión (la clave ya no coincide) vuelven a salir.
 const WHATS_NEW_KEY = "whatsNewSeen";
 const CHANGELOG = [
+  {
+    es: "Biblioteca sin esperas: al tocar la pestaña cambia al instante y muestra «Cargando tu biblioteca...» con su barra de progreso; la carga corre en segundo plano y, si falla, la pantalla lo dice (aviso de error o «No se pudo cargar tu biblioteca») en vez de quedarse en la sección anterior.",
+    en: "Library without the wait: tapping the tab switches at once and shows a progress bar with «Loading your library...»; the load runs in the background and, if it fails, the screen says so (error notice or «We couldn't load your library») instead of staying on the previous section."
+  },
   {
     es: "El aviso «Novedades» ya no se pierde: el botón «más» del AppBar y Ajustes tienen «Novedades», que muestra el changelog aunque lo hayas descartado.",
     en: "The What's new notice is no longer lost: the AppBar's «more» button and Settings both have «What's new», which shows the changelog even after you dismissed it."
@@ -789,15 +793,27 @@ async function searchMore(cursor) {
 }
 
 // -- Biblioteca (con sesión) ---------------------------------------------------------------------
-async function libraryRows() {
+// Las listas de la biblioteca. `failHard` hace que, si las tres peticiones fallaron (sin red o sesión rechazada),
+// lanze un error en vez de devolver «vacío»: así la pantalla puede decir que falló y no «no hay listas».
+async function libraryRows(failHard) {
+  let failed = 0;
+  const soft = async (label, fn) => {
+    try {
+      return await fn();
+    } catch (e) {
+      failed++;
+      kino.log(label + ":", (e && e.code) || "error");
+      return null;
+    }
+  };
   const rows = [];
   const [likedData, listsData, ownedListsData, libraryData, historyData] = await Promise.all([
-    safe("library liked", () => yt("browse", { browseId: "VLLM" }), null),
-    safe("library lists", () => yt("browse", { browseId: "FEmusic_liked_playlists" }), null),
+    soft("library liked", () => yt("browse", { browseId: "VLLM" })),
+    soft("library lists", () => yt("browse", { browseId: "FEmusic_liked_playlists" })),
     // Estos dos browseId no son compatibles con el cliente WEB_REMIX y devuelven unavailable.
     Promise.resolve(null),
     Promise.resolve(null),
-    safe("library history", () => yt("browse", { browseId: "FEmusic_history" }), null),
+    soft("library history", () => yt("browse", { browseId: "FEmusic_history" })),
   ]);
   if (likedData) {
     const items = collectItems(shelfOf(likedData)).filter((x) => x.type === "track" && keep(x)).slice(0, 60).map(toItem);
@@ -821,6 +837,7 @@ async function libraryRows() {
     const items = collectItems(historyData).filter((x) => x.type === "track" && keep(x)).slice(0, 40).map(toItem);
     if (items.length) rows.push({ id: "yt-history", title: "Escuchado hace poco", items, ref: "b:FEmusic_history", genre: "musica" });
   }
+  if (failHard && failed >= 3) throw new Error("No se pudo contactar con YouTube Music");
   return rows;
 }
 
@@ -2422,7 +2439,37 @@ export async function screen({ state, route, device, size, lang, installed }) {
         { value: "tracks", label: "Me gusta", labelEn: "Liked" }
       ]));
 
-      if (!s.libraryLoaded) {
+      // Si ya había cosas guardadas y la recarga falló, el error no puede esconderse detrás de los elementos viejos.
+      if (!s.libraryLoading && s.libraryError && rawLib.length) {
+        children.push({
+          type: "MaterialBanner",
+          key: "lib_error_banner",
+          role: "error",
+          title: "No se pudo actualizar tu biblioteca",
+          titleEn: "Your library could not be refreshed",
+          text: s.libraryError,
+          textEn: "Check your session and use Sync to try again.",
+          action: { label: "Reintentar", labelEn: "Retry", onTap: "switch_screen_tab_library" }
+        });
+      }
+
+      // Cargando: la pestaña ya cambió (switch_screen_tab no espera) y el temporizador trae las listas en segundo
+      // plano. La barra y el texto dicen «Cargando...» para que nadie crea que la pantalla se congeló.
+      if (s.libraryLoading) {
+        children.push({
+          type: "Column",
+          key: "lib_loading_col",
+          gap: 12,
+          crossAxisAlignment: "center",
+          padding: { top: 32, bottom: 16 },
+          children: [{
+            type: "CircularProgressIndicator",
+            key: "lib_loading_cpi",
+            text: "Cargando tu biblioteca...",
+            textEn: "Loading your library..."
+          }]
+        });
+      } else if (!s.libraryLoaded) {
         children.push({ type: "Skeleton", key: "skel_lib", shape: "card" });
         children.push({ type: "Skeleton", key: "skel_lib_lines", shape: "line", lines: 6 });
       } else if (rawLib.length) {
@@ -2836,6 +2883,9 @@ export async function screen({ state, route, device, size, lang, installed }) {
   };
   // Fuera de la portada, el Atrás del sistema vuelve a la vista anterior en vez de cerrar la pantalla.
   if (tab !== "trending") root.onBack = "go_back";
+  // Mientras la biblioteca carga, la raíz trae un temporizador: library_load_tick la trae en segundo plano y la
+  // pestaña cambia al instante. Al terminar la pantalla se dibuja sin `every` y el temporizador deja de correr.
+  if (s.libraryLoading) root.every = { ms: 1000, event: "library_load_tick" };
   return root;
 }
 
@@ -2884,7 +2934,7 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
 
     if (savedCookie()) {
       try {
-        const libRows = await libraryRows();
+        const libRows = await libraryRows(true);
         const lItems = [];
         for (const r of libRows) {
           for (const it of r.items) {
@@ -2904,6 +2954,8 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     } else {
       s.libraryLoaded = true;
     }
+    // La recarga completa ya esperó la carga antes de dibujar: ningún temporizador debe quedar pendiente.
+    s.libraryLoading = false;
     return { state: s };
   }
 
@@ -2931,24 +2983,41 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     const from = s.tab;
     s.tab = isNavTab(wanted) ? wanted : "trending";
     if (s.tab !== from) s.backTab = isNavTab(from) ? from : "trending";
-    // Al entrar en Biblioteca se recarga ahí mismo, sin depender de otro botón.
+    // Al entrar en Biblioteca la pestaña cambia AL INSTANTE y la carga corre en segundo plano (library_load_tick):
+    // así el usuario ve «Cargando...» en Biblioteca en vez de quedarse mirando la sección anterior.
     if (s.tab === "library") {
-      s.libraryLoaded = false;
-      if (savedCookie()) {
-        try {
-          const rows = await libraryRows();
-          s.libraryItems = rows.flatMap((r) => r.items || []);
-          s.libraryError = "";
-          kino.log("ytmusic screenEvent: library synced items:", s.libraryItems.length);
-        } catch (e) {
-          kino.log("ytmusic screenEvent: library reload failed:", e && e.message);
-          s.libraryError = "No se pudieron cargar las listas. Revisa la sesión y vuelve a sincronizar.";
-        }
+      s.libraryLoading = !!savedCookie();
+      if (!s.libraryLoading) {
+        s.libraryLoaded = true;
+        s.libraryError = "";
       }
-      s.libraryLoaded = true;
-      return { state: s, toast: s.libraryItems && s.libraryItems.length ? "Biblioteca sincronizada" : undefined };
+      return { state: s };
     }
     return { state: s };
+  }
+
+  // El temporizador de la biblioteca (solo existe mientras libraryLoading está puesto, porque la raíz deja de traer
+  // `every` al dibujarse sin él). Hace la carga lenta sin bloquear el cambio de pestaña: si falla, lo dice en la
+  // pantalla (el emptyState / el banner de error) y también en un toast.
+  if (name === "library_load_tick") {
+    if (!s.libraryLoading) return { state: s };
+    s.libraryLoading = false;
+    s.libraryLoaded = true;
+    if (!savedCookie()) {
+      s.libraryError = "";
+      return { state: s };
+    }
+    try {
+      const rows = await libraryRows(true);
+      s.libraryItems = rows.flatMap((r) => r.items || []);
+      s.libraryError = "";
+      kino.log("ytmusic screenEvent: library synced items:", s.libraryItems.length);
+      return { state: s, toast: s.libraryItems.length ? "Biblioteca sincronizada" : "Biblioteca vacía" };
+    } catch (e) {
+      kino.log("ytmusic screenEvent: library load failed:", e && e.message);
+      s.libraryError = "No se pudieron cargar las listas. Revisa la sesión y vuelve a sincronizar.";
+      return { state: s, toast: "No se pudo cargar tu biblioteca" };
+    }
   }
 
   // Pestañas del AppBar en Explorar: Para ti / Explorar / Tendencias. La que falta se carga al vuelo.
@@ -3015,19 +3084,13 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
   if (name === "switch_screen_tab_library") {
     if (s.tab !== "library") s.backTab = isNavTab(s.tab) ? s.tab : "trending";
     s.tab = "library";
-    s.libraryLoaded = false;
-    if (savedCookie()) {
-      try {
-        const rows = await libraryRows();
-        s.libraryItems = rows.flatMap((r) => r.items || []);
-        s.libraryError = "";
-      } catch (e) {
-        kino.log("ytmusic screenEvent: library reload failed:", e && e.message);
-        s.libraryError = "No se pudieron cargar las listas. Revisa la sesión y vuelve a sincronizar.";
-      }
+    // Igual que al tocar la pestaña: cambia ya y la carga corre en library_load_tick.
+    s.libraryLoading = !!savedCookie();
+    if (!s.libraryLoading) {
+      s.libraryLoaded = true;
+      s.libraryError = "";
     }
-    s.libraryLoaded = true;
-    return { state: s, toast: s.libraryItems && s.libraryItems.length ? "Biblioteca sincronizada" : undefined };
+    return { state: s };
   }
 
   if (name === "filter_trending") {
@@ -3094,6 +3157,8 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
       cookieD: raw.slice(chunk * 3, chunk * 4)
     };
     s.tab = "library";
+    // Ya con la pestaña abierta: «Cargando...» en vez del esqueleto mientras settings_saved trae las listas.
+    s.libraryLoading = true;
     s.libraryLoaded = false;
     return {
       config: cfg,
@@ -3222,20 +3287,13 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
       s.libraryItems = [];
       s.libraryError = "";
       s.libraryLoaded = true;
+      s.libraryLoading = false;
     } else if (keys.some((k) => k === "cookieA" || k === "cookieB" || k === "cookieC" || k === "cookieD")) {
-      s.libraryLoaded = false;
-      if (savedCookie()) {
-        try {
-          const rows = await libraryRows();
-          s.libraryItems = rows.flatMap((r) => r.items || []);
-          s.libraryError = "";
-        } catch (e) {
-          s.libraryError = "No se pudieron cargar las listas. Revisa la sesión y vuelve a sincronizar.";
-        }
-      } else {
-        s.libraryItems = [];
-      }
-      s.libraryLoaded = true;
+      // Las cookies cambiaron: la biblioteca se recarga en segundo plano (library_load_tick) mientras la pestaña
+      // Biblioteca muestra «Cargando...», en vez de congelar este evento a mitad de la carga.
+      s.libraryLoading = !!savedCookie();
+      s.libraryLoaded = !s.libraryLoading;
+      if (!s.libraryLoading) s.libraryItems = [];
     }
     return { state: s, toast: ok ? "Ajustes guardados" : "Revisa los ajustes: no se pudieron guardar" };
   }

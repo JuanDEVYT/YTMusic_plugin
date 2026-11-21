@@ -4,6 +4,10 @@
 
 Plugin de música para Kino (apiVersion 19, Kino 0.9.81 o superior): busca, explora una sección propia, abre álbumes y listas, y reproduce el audio de YouTube Music. Con tu sesión, también ves tus **Me gusta** y **tus listas**.
 
+## Novedades de la 0.6.9
+
+- **Biblioteca sin esperas**: al tocar la pestaña **Mi Música** en la barra inferior la pantalla cambia al instante y muestra **«Cargando tu biblioteca...»** con su barra de progreso; la carga corre en segundo plano (temporizador `library_load_tick`) y nunca te deja mirando la sección anterior. Si falla, lo dice en la pantalla (aviso de error, o «No se pudo cargar tu biblioteca») y con un toast; el botón **Sincronizar** y el guardado de cookies nuevos hacen lo mismo.
+
 ## Novedades de la 0.6.8
 
 - **El aviso «Novedades» ya no se pierde**: el botón «más» del `AppBar` y la pestaña Ajustes tienen «Novedades», que muestra el changelog de la versión aunque lo hayas descartado antes. «Entendido» solo deja de molestar hasta la próxima actualización.
