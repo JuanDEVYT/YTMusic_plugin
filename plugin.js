@@ -10,9 +10,31 @@ const API = "https://music.youtube.com/youtubei/v1/";
 const ORIGIN = "https://music.youtube.com";
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
-const VERSION = "0.6.4";
+const VERSION = "0.6.5";
 // Cada ajuste "password" admite 500 caracteres como máximo (límite de Kino): por eso 4 partes = 2000.
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC", "cookieD"];
+
+// Novedades: la pantalla las muestra al abrir tras cada actualización y las oculta «Entendido», que guarda la versión
+// vista en kino.storage; al volver a cambiar de versión (la clave ya no coincide) vuelven a salir.
+const WHATS_NEW_KEY = "whatsNewSeen";
+const CHANGELOG = [
+  {
+    es: "Barra de navegación inferior con cinco pestañas: Explorar, Buscar, IA, Mi Música y Ajustes.",
+    en: "New bottom navigation bar with five tabs: Explore, Search, AI, My Music and Settings."
+  },
+  {
+    es: "Explorar tiene secciones en la parte superior (Para ti, Explorar y Tendencias), cada una con sus carruseles.",
+    en: "Explore has sections at the top (For you, Explore and Charts), each with its own rails."
+  },
+  {
+    es: "Aspecto nuevo: tarjeta destacada, carruseles, listas, rejillas, guía de vinculación en pasos y menú de atajos.",
+    en: "New look: featured card, rails, lists, grids, a step-by-step linking guide and a shortcuts menu."
+  },
+  {
+    es: "Buscar es una pestaña propia, con botón para limpiar la consulta; y se corrigieron props que Kino descartaba.",
+    en: "Search is its own tab with a button to clear the query; props Kino used to drop were also fixed."
+  }
+];
 
 // Clientes para /player, en orden de preferencia. VISIONOS entrega URLs directas de audio que googlevideo
 // sirve completas y por rangos abiertos sin PO token (el que usa yt-dlp); IOS y ANDROID_VR piden ese token para
@@ -1699,6 +1721,12 @@ function parseItemType(ref, badges) {
   };
 }
 
+// ---------------------------------------------------------------------------------------------
+// PANTALLA · Scaffold con AppBar arriba, navegación inferior (NavigationBar) y un cuerpo
+// distinto para cada una de las cinco pestañas.
+// ---------------------------------------------------------------------------------------------
+
+// Tap: reproducir una canción (o abrir el artista / álbum). Pulsación prolongada: la ficha.
 function renderMusicTile(item, idx, prefix = "tr_") {
   const meta = parseItemType(item.ref, item.badges);
   const rawId = item.id || (meta.type + "." + meta.idPart);
@@ -1710,346 +1738,460 @@ function renderMusicTile(item, idx, prefix = "tr_") {
   if (meta.isArtist) {
     subtitle = "Artista" + (item.subscribers ? " · " + item.subscribers : "");
   } else if (meta.isAlbum) {
-    const kindLabel = (item.badges && item.badges.includes("Lista")) ? "Lista" : "Álbum";
-    subtitle = item.artist ? (item.artist + " · " + kindLabel) : kindLabel;
+    const kind = (item.badges && item.badges.includes("Lista")) ? "Lista" : "Álbum";
+    subtitle = item.artist ? item.artist + " · " + kind : kind;
   } else {
     const isVid = item.badges && item.badges.includes("Video");
-    subtitle = item.artist ? (item.artist + (isVid ? " · Video" : " · Canción")) : (isVid ? "Video musical" : "Canción");
+    subtitle = item.artist ? item.artist + (isVid ? " · Video" : " · Canción") : (isVid ? "Video musical" : "Canción");
   }
+  if ((item.badges || []).includes("Explícito")) subtitle += " · Explícito";
 
-  const trailingIcon = meta.isArtist ? "person" : meta.isAlbum ? "list" : "play";
-
-  const onTapAction = (meta.isArtist || meta.isAlbum)
-    ? { go: { title: { ref: item.ref, kind: "music", id: itemId, title } } }
-    : { go: { play: { ref: item.ref, kind: "music", id: itemId, title } } };
+  const openDetail = { go: { title: { ref: item.ref, kind: "music", id: itemId, title } } };
 
   return {
     type: "ListTile",
     key: prefix + idx,
     title,
     subtitle,
-    leading: {
-      type: "CircleAvatar",
-      image: item.poster || "",
-      radius: 24,
-      text: initials
-    },
-    trailing: {
-      type: "Icon",
-      name: trailingIcon
-    },
-    onTap: onTapAction
+    leading: { type: "CircleAvatar", image: item.poster || "", radius: 24, text: initials },
+    trailing: { type: "Icon", name: meta.isArtist ? "person" : meta.isAlbum ? "list" : "play" },
+    tooltip: meta.isArtist ? "Ver artista" : meta.isAlbum ? "Ver álbum o lista" : "Reproducir",
+    tooltipEn: meta.isArtist ? "Open artist" : meta.isAlbum ? "Open album or list" : "Play",
+    onTap: (meta.isArtist || meta.isAlbum) ? openDetail : { go: { play: { ref: item.ref, kind: "music", id: itemId, title } } },
+    onLongPress: openDetail
   };
+}
+
+// Las cinco pestañas de la navegación inferior. Su `key` es lo que screenEvent recibe en `value`.
+const NAV_ITEMS = [
+  { key: "trending", icon: "home", label: "Explorar", labelEn: "Explore" },
+  { key: "search", icon: "search", label: "Buscar", labelEn: "Search" },
+  { key: "ai", icon: "magic", label: "IA", labelEn: "AI" },
+  { key: "library", icon: "music", label: "Biblioteca", labelEn: "Library" },
+  { key: "account", icon: "settings", label: "Ajustes", labelEn: "Settings" }
+];
+
+// Título del AppBar en cada pestaña.
+const TAB_TITLES = {
+  trending: { title: "YouTube Music", titleEn: "YouTube Music" },
+  search: { title: "Buscar", titleEn: "Search" },
+  ai: { title: "Playlist con IA", titleEn: "AI Playlist" },
+  library: { title: "Mi Música", titleEn: "My Music" },
+  account: { title: "Ajustes", titleEn: "Settings" }
+};
+
+// Secciones del carrusel de Explorar (las pestañas del AppBar, no confundir con las de abajo).
+const TREND_SECTIONS = [
+  { value: "inicio", label: "Para ti", labelEn: "For you" },
+  { value: "explorar", label: "Explorar", labelEn: "Explore" },
+  { value: "tendencias", label: "Tendencias", labelEn: "Charts" }
+];
+
+const isNavTab = (t) => NAV_ITEMS.some((n) => n.key === t);
+const isTrendSection = (t) => TREND_SECTIONS.some((n) => n.value === t);
+
+// Las filas que devuelve una capacidad, como carruseles: título y hasta 25 elementos, sin repetir títulos.
+function railsFromRows(rows) {
+  const out = [];
+  const seen = new Set();
+  for (const r of rows || []) {
+    if (!r || !r.items || !r.items.length) continue;
+    const title = r.title || "Música destacada";
+    if (seen.has(title)) continue;
+    seen.add(title);
+    out.push({ title, items: r.items.slice(0, 25) });
+  }
+  return out;
+}
+
+// Une varios carruseles quitando los títulos que ya aparecieron.
+function mergeRails(lists) {
+  const out = [];
+  const seen = new Set();
+  for (const list of lists) {
+    for (const r of list || []) {
+      if (!r || seen.has(r.title)) continue;
+      seen.add(r.title);
+      out.push(r);
+    }
+  }
+  return out;
+}
+
+// El cuerpo de cada pestaña: un scroll vertical con una columna dentro (Kino le da la altura).
+function scrollCol(key, children) {
+  return {
+    type: "SingleChildScrollView",
+    key,
+    children: [{ type: "Column", key: key + "_col", gap: 16, padding: 12, children }]
+  };
+}
+
+// Fila de chips desplazable en horizontal (filtros, ideas rápidas).
+function chipsRow(key, value, onChange, options) {
+  return {
+    type: "SingleChildScrollView",
+    key: key + "_scroll",
+    direction: "horizontal",
+    children: [{ type: "Chips", key, value, onChange, options }]
+  };
+}
+
+// Encabezado de una sección del cuerpo.
+function sectionHead(key, text, textEn) {
+  return { type: "Text", key, text, textEn, style: "h4", bold: true };
+}
+
+// Lista de elementos como columna de ListTiles: nunca un ListView dentro de un scroll (no tendría altura).
+function tileColumn(key, items, prefix, max) {
+  return {
+    type: "Column",
+    key,
+    gap: 4,
+    children: items.slice(0, max || 20).map((it, i) => renderMusicTile(it, i, prefix))
+  };
+}
+
+// Destacado: tarjeta grande con portada y su acción principal (reproducir o abrir).
+function heroCardFor(item, key) {
+  const meta = parseItemType(item.ref, item.badges);
+  const rawId = item.id || (meta.type + "." + meta.idPart);
+  const itemId = /^[A-Za-z0-9._~-]{1,128}$/.test(rawId) ? rawId : (meta.type + "." + key);
+  const title = String(item.title || "YouTube Music").slice(0, 160);
+  const ref = { ref: item.ref, kind: "music", id: itemId, title };
+  const isTrack = meta.isTrack;
+  const kind = meta.isArtist ? "Artista" : meta.isAlbum ? "Álbum o lista" : "Canción";
+  const text = [item.artist, kind].filter(Boolean).join(" · ").slice(0, 240);
+
+  const buttons = [{
+    type: "ElevatedButton",
+    key: key + "_primary",
+    labelText: isTrack ? "Reproducir" : "Abrir",
+    labelTextEn: isTrack ? "Play" : "Open",
+    icon: isTrack ? "play" : "arrow_forward",
+    onPressed: isTrack ? { go: { play: ref } } : { go: { title: ref } }
+  }];
+  if (isTrack) {
+    buttons.push({
+      type: "TextButton",
+      key: key + "_secondary",
+      labelText: "Ver ficha",
+      labelTextEn: "Details",
+      icon: "info",
+      onPressed: { go: { title: ref } }
+    });
+  }
+
+  return { type: "heroCard", key, title, text, image: item.poster || "", buttons };
+}
+
+// Los géneros y estados de ánimo como botones que abren su «Ver más».
+function genresRow(genres) {
+  return {
+    type: "SingleChildScrollView",
+    key: "genres_scroll",
+    direction: "horizontal",
+    children: [{
+      type: "Row",
+      key: "genres_row",
+      gap: 8,
+      children: genres.slice(0, 16).map((g, i) => ({
+        type: "Button",
+        key: "genre_" + i,
+        variant: "secondary",
+        icon: "music",
+        labelText: g.title,
+        onPressed: { go: { browse: { ref: g.ref, title: g.title, titleEn: g.title } } }
+      }))
+    }]
+  };
+}
+
+// El menú de atajos que abre el botón «más» del AppBar: el único pop-up de la pantalla.
+function overflowMenu() {
+  return {
+    type: "PopupMenuButton",
+    key: "ytm_overflow",
+    title: "Ir a",
+    titleEn: "Go to",
+    items: [
+      { label: "Recargar", labelEn: "Refresh", icon: "refresh", onTap: "refresh_screen" },
+      { label: "Buscar", labelEn: "Search", icon: "search", onTap: "open_search" },
+      { label: "Playlist con IA", labelEn: "AI Playlist", icon: "magic", onTap: "switch_screen_tab", arg: "ai" },
+      { label: "Mi Música", labelEn: "My Music", icon: "music", onTap: "switch_screen_tab", arg: "library" },
+      { label: "Ajustes", labelEn: "Settings", icon: "settings", onTap: "switch_screen_tab", arg: "account" }
+    ]
+  };
+}
+
+// Las novedades de la versión actual, si la persona aún no las descartó: el aviso (arriba) y el detalle en un
+// accordion abierto. Las claves llevan la versión para que una actualización nueva no herede el «oculto» de la vieja.
+function whatsNewDismissed() {
+  try {
+    return kino.storage.get(WHATS_NEW_KEY) === VERSION;
+  } catch (e) {
+    return false;
+  }
+}
+
+function whatsNewKey(part) {
+  return part + "_" + String(VERSION).replace(/[^A-Za-z0-9]+/g, "_");
+}
+
+function whatsNewNodes() {
+  if (whatsNewDismissed()) return [];
+  const bannerKey = whatsNewKey("whats_new");
+  const listKey = whatsNewKey("whats_new_list");
+  return [
+    {
+      type: "MaterialBanner",
+      key: bannerKey,
+      role: "info",
+      title: "Novedades de la " + VERSION,
+      titleEn: "What's new in " + VERSION,
+      text: "Acabamos de actualizar el plugin: aquí está lo que ha cambiado.",
+      textEn: "We just updated the plugin: here is what changed.",
+      action: { label: "Entendido", labelEn: "Got it", onTap: "whats_new_dismiss" }
+    },
+    {
+      type: "ExpansionTile",
+      key: listKey,
+      items: [{
+        key: listKey + "_item",
+        title: "Qué ha cambiado en la " + VERSION,
+        titleEn: "What changed in " + VERSION,
+        open: true,
+        children: CHANGELOG.map((line, i) => ({
+          type: "Text",
+          key: whatsNewKey("whats_new_line") + "_" + i,
+          text: "• " + line.es,
+          textEn: "• " + line.en
+        }))
+      }]
+    }
+  ];
 }
 
 export async function screen({ state, route, device, size, lang, installed }) {
   lastInstalled = installed || {};
   const s = state || {};
-  const tab = s.tab || "trending";
+  const tab = isNavTab(s.tab) ? s.tab : "trending";
+  const hasSess = sessionActive(s);
+  const sessionBad = hasSess && s.accountChecked && !s.accountName;
 
-  let bodyNode;
+  let bodyNode = null;
+  let fab = null;
 
+  // --------------------------------------------------------------- 1 · Explorar (con secciones)
   if (tab === "trending") {
-    const rails = s.rails || [];
+    const sectionId = isTrendSection(s.trendSection) ? s.trendSection : "inicio";
+    const sectionLoading = s.sectionLoading === sectionId;
+    const own = s.sections && Array.isArray(s.sections[sectionId]) ? s.sections[sectionId] : null;
+    const rails = own && own.length ? own : (s.rails || []);
     const filter = s.trendFilter || "all";
-    const featuredHero = s.heroItem || (rails[0]?.items?.[0]);
-
     const children = [];
 
-    // The Inicio on screen was loaded before the account changed (linked or logged out): offer to load it again.
-    if (s.trendingLoaded && s.railsAuth !== sessionActive(s)) {
+    // El Inicio se cargó con otra cuenta (vinculada o cerrada): ofrecemos cargarlo otra vez.
+    if (s.trendingLoaded && s.railsAuth !== hasSess) {
       children.push({
-        type: "Card",
-        key: "card_reload_home",
-        padding: 16,
-        variant: "outlined",
-        children: [
-          {
-            type: "Text",
-            key: "reload_home_txt",
-            text: sessionActive(s) ? "Tu cuenta ya está vinculada. Carga tu Inicio para ver tu música." : "Cerraste sesión. Actualiza para volver al Inicio general.",
-            textEn: sessionActive(s) ? "Your account is linked. Load your Home to see your music." : "You logged out. Refresh to go back to the general Home."
-          },
-          {
-            type: "ElevatedButton",
-            key: "btn_reload_home",
-            labelText: sessionActive(s) ? "Cargar mi Inicio" : "Actualizar",
-            labelTextEn: sessionActive(s) ? "Load my Home" : "Refresh",
-            icon: "refresh",
-            onPressed: "refresh_screen"
-          }
-        ]
+        type: "MaterialBanner",
+        key: "banner_reload_home",
+        role: hasSess ? "success" : "info",
+        title: hasSess ? "Cuenta vinculada" : "Sesión cerrada",
+        titleEn: hasSess ? "Account linked" : "Signed out",
+        text: hasSess ? "Carga tu Inicio para ver tu música guardada." : "Vuelve al Inicio general de YouTube Music.",
+        textEn: hasSess ? "Load your Home to see your saved music." : "Back to the general YouTube Music Home.",
+        action: {
+          label: hasSess ? "Cargar mi Inicio" : "Actualizar",
+          labelEn: hasSess ? "Load my Home" : "Refresh",
+          onTap: "refresh_screen"
+        }
       });
     }
 
-    // Hero compacto recupera jerarquía visual sin empujar los carruseles bajo el primer pliegue.
-    if (featuredHero) {
+    if (sectionLoading || !s.trendingLoaded) {
+      children.push({ type: "Skeleton", key: "skel_hero", shape: "card" });
+      children.push({ type: "Skeleton", key: "skel_lines_a", shape: "line", lines: 4 });
+      children.push({ type: "Skeleton", key: "skel_lines_b", shape: "line", lines: 6 });
+    } else if (!rails.length) {
       children.push({
-        type: "heroCard",
-        key: "hero_trend",
-        title: "Tendencias Musicales",
-        text: featuredHero.title ? "Destacado: " + featuredHero.title : "Descubre música en YouTube Music",
-        image: featuredHero.poster || "",
-        buttons: [{
-          type: "Button",
-          key: "hero_btn_search",
-          variant: "secondary",
-          icon: "search",
-          labelText: "Buscar música",
-          labelTextEn: "Search music",
-          onPressed: "open_search"
-        }]
+        type: "emptyState",
+        key: "trend_empty_all",
+        title: "No pudimos cargar la música",
+        titleEn: "We couldn't load the music",
+        text: "Comprueba tu conexión y vuelve a intentarlo.",
+        textEn: "Check your connection and try again.",
+        icon: "warning"
       });
-    }
-
-    // Filtros de categoría rápida.
-    children.push({
-      type: "Card",
-      key: "trend_filter_card",
-      padding: 8,
-      variant: "outlined",
-      children: [
-        {
-          type: "SingleChildScrollView",
-          key: "trend_filter_scroll",
-          direction: "horizontal",
-          children: [{
-            type: "Chips",
-            key: "trend_filter",
-            value: filter,
-            onChange: "filter_trending",
-            options: [
-              { value: "all", label: "Todo", labelEn: "All" },
-              { value: "songs", label: "Canciones", labelEn: "Songs" },
-              { value: "artists", label: "Artistas", labelEn: "Artists" },
-              { value: "albums", label: "Álbumes y Listas", labelEn: "Albums & Lists" }
-            ]
-          }]
-        }
-      ]
-    });
-
-    // Kino puede restaurar trendingLoaded sin restaurar rails tras cerrar/abrir la mini-app.
-    // Sin filas, conservamos Skeleton en vez de una portada vacía.
-    if (!s.trendingLoaded || !rails.length) {
-      children.push({ type: "Skeleton", key: "skel_trend", variant: "list", rows: 8, padding: 12 });
-    } else if (filter === "all") {
-      // Vista completa con carruseles horizontales nativos (titleRail)
-      rails.forEach((rail, idx) => {
-        if (rail.items && rail.items.length) {
-          children.push({
-            type: "titleRail",
-            key: "rail_" + idx,
-            title: rail.title,
-            items: rail.items
-          });
-        }
+      children.push({
+        type: "ElevatedButton",
+        key: "btn_trend_retry",
+        labelText: "Reintentar",
+        labelTextEn: "Retry",
+        icon: "refresh",
+        onPressed: "refresh_screen"
       });
     } else {
-      // Filtrar items según la selección
-      const filteredItems = [];
-      const seen = new Set();
-      for (const r of rails) {
-        for (const it of r.items || []) {
-          if (!it.ref || seen.has(it.ref)) continue;
-          seen.add(it.ref);
-          const meta = parseItemType(it.ref, it.badges);
-          if (filter === "songs" && meta.isTrack) filteredItems.push(it);
-          if (filter === "artists" && meta.isArtist) filteredItems.push(it);
-          if (filter === "albums" && meta.isAlbum) filteredItems.push(it);
-        }
-      }
+      const hero = rails[0] && rails[0].items ? rails[0].items.find((x) => x && x.ref && x.poster) : null;
+      if (hero) children.push(heroCardFor(hero, "hero_trend"));
 
-      if (filteredItems.length) {
-        children.push({
-          type: "titleRail",
-          key: "rail_filtered",
-          title: filter === "songs" ? "Canciones destacadas" : filter === "artists" ? "Artistas principales" : "Álbumes y Listas",
-          items: filteredItems.slice(0, 30)
-        });
-        // También listado detallado
-        children.push({
-          type: "Card",
-          key: "filtered_list_card",
-          padding: 8,
-          variant: "outlined",
-          children: filteredItems.slice(0, 20).map((it, idx) => renderMusicTile(it, idx, "flt_"))
+      children.push(chipsRow("trend_filter", filter, "filter_trending", [
+        { value: "all", label: "Todo", labelEn: "All" },
+        { value: "songs", label: "Canciones", labelEn: "Songs" },
+        { value: "artists", label: "Artistas", labelEn: "Artists" },
+        { value: "albums", label: "Álbumes y Listas", labelEn: "Albums & Lists" }
+      ]));
+
+      if (filter === "all") {
+        if (s.genres && s.genres.length) {
+          children.push(sectionHead("genres_head", "Géneros y estados de ánimo", "Moods and genres"));
+          children.push(genresRow(s.genres));
+        }
+        rails.forEach((rail, idx) => {
+          if (rail.items && rail.items.length) {
+            children.push({ type: "titleRail", key: "rail_" + idx, title: rail.title, items: rail.items });
+          }
         });
       } else {
-        children.push({
-          type: "emptyState",
-          key: "trend_empty",
-          title: "Sin resultados en esta categoría",
-          titleEn: "No items in this category",
-          text: "Selecciona otra categoría arriba o vuelve a cargar la página.",
-          icon: "filter_list"
-        });
-        children.push({
-          type: "ElevatedButton",
-          key: "btn_trend_refresh",
-          labelText: "Actualizar",
-          labelTextEn: "Refresh",
-          icon: "refresh",
-          onPressed: "refresh_screen"
-        });
+        const filtered = [];
+        const seen = new Set();
+        for (const r of rails) {
+          for (const it of r.items || []) {
+            if (!it.ref || seen.has(it.ref)) continue;
+            seen.add(it.ref);
+            const meta = parseItemType(it.ref, it.badges);
+            if (filter === "songs" && meta.isTrack) filtered.push(it);
+            else if (filter === "artists" && meta.isArtist) filtered.push(it);
+            else if (filter === "albums" && meta.isAlbum) filtered.push(it);
+          }
+        }
+
+        if (filtered.length) {
+          const label = filter === "songs" ? "Canciones destacadas"
+            : filter === "artists" ? "Artistas principales" : "Álbumes y Listas";
+          children.push(sectionHead("flt_head", label, label));
+          if (filter === "songs") {
+            children.push(tileColumn("flt_list", filtered, "flt_", 20));
+          } else {
+            children.push({ type: "titleGrid", key: "flt_grid", columns: 3, items: filtered.slice(0, 30) });
+          }
+        } else {
+          children.push({
+            type: "emptyState",
+            key: "trend_empty",
+            title: "Sin resultados en esta categoría",
+            titleEn: "No items in this category",
+            text: "Selecciona otra categoría arriba o vuelve a cargar la página.",
+            textEn: "Pick another category above or reload the page.",
+            icon: "filter_list"
+          });
+          children.push({
+            type: "ElevatedButton",
+            key: "btn_trend_refresh",
+            labelText: "Actualizar",
+            labelTextEn: "Refresh",
+            icon: "refresh",
+            onPressed: "refresh_screen"
+          });
+        }
       }
     }
 
-    bodyNode = {
-      type: "SingleChildScrollView",
-      key: "trend_scroll",
-      children: [
-        {
-          type: "Column",
-          key: "trend_col",
-          gap: 16,
-          padding: 12,
-          children
-        }
-      ]
+    bodyNode = scrollCol("trend_scroll", whatsNewNodes().concat(children, [overflowMenu()]));
+    fab = {
+      type: "FloatingActionButton",
+      key: "fab_search",
+      icon: "search",
+      labelText: "Buscar música",
+      labelTextEn: "Search music",
+      onPressed: "open_search"
     };
+
+  // ------------------------------------------------------------------------ 2 · Buscar
   } else if (tab === "search") {
     const rawResults = s.searchResults || [];
     const filter = s.searchFilter || "all";
     const tracks = [];
     const others = [];
-
-    for (const it of rawResults) {
-      const meta = parseItemType(it.ref, it.badges);
-      if (meta.isTrack) tracks.push(it);
-      else others.push(it);
-    }
-
+    for (const it of rawResults) (parseItemType(it.ref, it.badges).isTrack ? tracks : others).push(it);
     const artists = [];
     const albums = [];
     for (const it of others) (parseItemType(it.ref, it.badges).isArtist ? artists : albums).push(it);
     const shownTracks = filter === "artists" || filter === "albums" ? [] : tracks;
     const shownOthers = filter === "all" ? others : filter === "songs" ? [] : filter === "artists" ? artists : albums;
 
-    const children = [
-      {
-        type: "Row",
-        key: "search_top_row",
-        children: [
-          {
-            type: "TextButton",
-            key: "btn_close_search",
-            icon: "arrow_back",
-            labelText: "Volver",
-            labelTextEn: "Back",
-            onPressed: "close_search"
-          },
-          { type: "Text", key: "search_top_title", text: "Buscar en YouTube Music", textEn: "Search YouTube Music", style: "h3" }
-        ]
-      },
-      {
-        type: "Card",
-        key: "search_card",
-        padding: 12,
-        variant: "outlined",
-        children: [
-          {
-            type: "TextField",
-            key: "searchQuery",
-            kind: "search",
-            labelText: "Buscar en YouTube Music",
-            labelTextEn: "Search YouTube Music",
-            hintText: "Canción, artista, álbum o playlist...",
-            hintTextEn: "Song, artist, album or playlist...",
-            onSubmitted: SEARCH_ACTION,
-            trailingIcon: "search",
-            trailingLabel: "Buscar",
-            trailingLabelEn: "Search",
-            onTrailingTap: SEARCH_ACTION
-          },
-          {
-            type: "Text",
-            key: "search_hint",
-            text: "Busca canciones, artistas, álbumes y playlists.",
-            textEn: "Search songs, artists, albums and playlists.",
-            style: "caption",
-            color: "muted"
-          }
-        ]
-      }
-    ];
+    const children = [];
 
-    // Filtro de resultados por tipo de contenido.
     children.push({
       type: "Card",
-      key: "search_filter_card",
-      padding: 8,
-      variant: "outlined",
-      children: [
-        {
-          type: "SingleChildScrollView",
-          key: "search_filter_scroll",
-          direction: "horizontal",
-          children: [{
-            type: "Chips",
-            key: "search_filter",
-            value: filter,
-            onChange: "filter_search",
-            options: [
-              { value: "all", label: "Todo", labelEn: "All" },
-              { value: "songs", label: "Canciones", labelEn: "Songs" },
-              { value: "artists", label: "Artistas", labelEn: "Artists" },
-              { value: "albums", label: "Álbumes", labelEn: "Albums" }
-            ]
-          }]
-        }
-      ]
+      key: "search_card",
+      padding: 12,
+      variant: "filled",
+      children: [{
+        type: "TextField",
+        key: "searchQuery",
+        kind: "search",
+        labelText: "Buscar en YouTube Music",
+        labelTextEn: "Search YouTube Music",
+        hintText: "Canción, artista, álbum o playlist...",
+        hintTextEn: "Song, artist, album or playlist...",
+        onSubmitted: SEARCH_ACTION,
+        trailingIcon: "search",
+        trailingLabel: "Buscar",
+        trailingLabelEn: "Search",
+        onTrailingTap: SEARCH_ACTION
+      }]
     });
 
-    // The spinner card always exists, hidden: pressing search shows it before the plugin is even called (SEARCH_ACTION).
+    children.push(chipsRow("search_filter", filter, "filter_search", [
+      { value: "all", label: "Todo", labelEn: "All" },
+      { value: "songs", label: "Canciones", labelEn: "Songs" },
+      { value: "artists", label: "Artistas", labelEn: "Artists" },
+      { value: "albums", label: "Álbumes", labelEn: "Albums" }
+    ]));
+
+    // Siempre presente y oculta: pulsar Buscar la muestra antes de que el plugin responda.
     children.push({
-        type: "Card",
-        key: "search_loading_card",
-        padding: 24,
-        align: "center",
-        hidden: true,
-        canRequestFocus: true,
-        children: [
-          {
-            type: "CircularProgressIndicator",
-            key: "search_cpi",
-            text: "Buscando en YouTube Music...",
-            textEn: "Searching YouTube Music..."
-          }
-        ]
-      });
+      type: "Card",
+      key: "search_loading_card",
+      padding: 24,
+      hidden: true,
+      canRequestFocus: true,
+      children: [{
+        type: "Column",
+        key: "search_loading_col",
+        gap: 8,
+        crossAxisAlignment: "center",
+        children: [{
+          type: "CircularProgressIndicator",
+          key: "search_cpi",
+          text: "Buscando en YouTube Music...",
+          textEn: "Searching YouTube Music..."
+        }]
+      }]
+    });
+
     if (s.searching) {
-      children.push({ type: "Skeleton", key: "skel_search", variant: "list", rows: 6, padding: 12 });
+      children.push({ type: "Skeleton", key: "skel_search", shape: "line", lines: 6 });
+      children.push({ type: "Skeleton", key: "skel_search_block", shape: "block", height: 160 });
     } else if (rawResults.length && (shownTracks.length || shownOthers.length)) {
-      // Resultados encontrados con organización profesional
+      const top = shownTracks[0] || shownOthers[0];
+      if (filter === "all" && top && top.poster) children.push(heroCardFor(top, "sr_hero"));
+
       if (shownOthers.length) {
         children.push({
           type: "titleRail",
           key: "sr_rail_others",
-          title: filter === "artists" ? "Artistas encontrados" : filter === "albums" ? "Álbumes y Listas encontrados" : "Artistas y Álbumes encontrados",
+          title: filter === "artists" ? "Artistas encontrados"
+            : filter === "albums" ? "Álbumes y Listas encontrados" : "Artistas y Álbumes encontrados",
           items: shownOthers.slice(0, 20)
         });
       }
 
       if (shownTracks.length) {
-        children.push({
-          type: "titleRail",
-          key: "sr_rail_tracks",
-          title: "Canciones destacadas",
-          items: shownTracks.slice(0, 20)
-        });
-
-        // Lista de reproducción directa con información enriquecida
-        children.push({
-          type: "Card",
-          key: "sr_tracks_card",
-          padding: 8,
-          variant: "outlined",
-          children: [
-            { type: "Text", key: "sr_tracklist_head", text: "Lista de Canciones", style: "h4" },
-            ...shownTracks.slice(0, 15).map((item, idx) => renderMusicTile(item, idx, "sr_t_"))
-          ]
-        });
+        children.push({ type: "titleRail", key: "sr_rail_tracks", title: "Canciones destacadas", items: shownTracks.slice(0, 20) });
+        children.push(sectionHead("sr_track_head", "Reproducir una canción", "Play a song"));
+        children.push(tileColumn("sr_track_list", shownTracks, "sr_t_", 15));
       }
     } else if (rawResults.length) {
       children.push({
@@ -2057,30 +2199,27 @@ export async function screen({ state, route, device, size, lang, installed }) {
         key: "sr_filter_empty",
         title: "Sin resultados en este filtro",
         titleEn: "No results in this filter",
-        text: "Selecciona «Todo» arriba o pulsa Volver para cambiar la búsqueda.",
+        text: "Selecciona «Todo» arriba o pulsa la flecha para cambiar la búsqueda.",
+        textEn: "Pick «All» above or go back to change the search.",
         icon: "filter_list"
       });
     } else if (s.searched) {
       children.push({
         type: "emptyState",
         key: "sr_empty",
-        title: "Sin resultados para \"" + (s.lastQuery || "") + "\"",
+        title: "Sin resultados para «" + (s.lastQuery || "") + "»",
         titleEn: "No results",
-        text: "Prueba con otra palabra o selecciona uno de los géneros de arriba.",
+        text: "Prueba con otra palabra o toca uno de los géneros de Explorar.",
+        textEn: "Try another word or open a genre from Explore.",
         icon: "search"
       });
     } else {
-      // Pantalla inicial antes de buscar: sugerencias atractivas
+      children.push(sectionHead("sr_sug_head", "Para empezar", "To get started"));
       const recRails = (s.rails || []).slice(0, 2);
       if (recRails.length) {
         recRails.forEach((r, idx) => {
           if (r.items && r.items.length) {
-            children.push({
-              type: "titleRail",
-              key: "sr_rec_rail_" + idx,
-              title: "Recomendado: " + r.title,
-              items: r.items.slice(0, 15)
-            });
+            children.push({ type: "titleRail", key: "sr_rec_rail_" + idx, title: "Recomendado: " + r.title, items: r.items.slice(0, 15) });
           }
         });
       } else {
@@ -2090,101 +2229,93 @@ export async function screen({ state, route, device, size, lang, installed }) {
           title: "Buscador de YouTube Music",
           titleEn: "YouTube Music Search",
           text: "Escribe cualquier canción, artista o playlist y pulsa Buscar.",
+          textEn: "Type any song, artist or playlist and press Search.",
           icon: "music"
         });
       }
     }
 
-    bodyNode = {
-      type: "SingleChildScrollView",
-      key: "search_scroll",
-      children: [
-        {
-          type: "Column",
-          key: "search_col",
-          gap: 16,
-          padding: 12,
-          children
-        }
-      ]
-    };
+    bodyNode = scrollCol("search_scroll", whatsNewNodes().concat(children, [overflowMenu()]));
+
+  // ---------------------------------------------------------------------------- 3 · Playlist IA
   } else if (tab === "ai") {
     const aiList = s.aiTracks || [];
-    const children = [
-      {
-        type: "heroCard",
-        key: "hero_ai",
-        title: "Playlist Inteligente con IA",
-        text: "Describe cualquier momento o estilo musical y la IA creará una selección real y personalizada.",
-        image: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=1200&q=80"
-      },
-      {
-        type: "Card",
-        key: "ai_card",
-        padding: 14,
-        variant: "filled",
-        children: [
-          { type: "Text", key: "ai_t1", text: "¿Qué te apetece escuchar?", style: "h3" },
-          { type: "Text", key: "ai_desc", text: "Toca una idea rápida o escribe tu propia descripción:", color: "muted" },
-          {
-            type: "Chips",
-            key: "ai_quick_chips",
-            onChange: "quick_ai_prompt",
-            options: [
-              { value: "Rock clásico legendario de los 70 y 80", label: "Rock Clásico", labelEn: "Classic Rock" },
-              { value: "Éxitos de reggaetón y pop latino 2024", label: "Pop & Urbano", labelEn: "Pop & Urban" },
-              { value: "Lo-Fi relajante y chill para estudiar concentrado", label: "Lo-Fi Chill", labelEn: "Lo-Fi Chill" },
-              { value: "Música electrónica energizante para entrenar en el gym", label: "Gym & Workout", labelEn: "Gym & Workout" },
-              { value: "Synthwave y retrowave de noche en la ciudad", label: "Synthwave 80s", labelEn: "Synthwave 80s" }
-            ]
-          },
-          {
-            type: "TextField",
-            key: "aiPrompt",
-            labelText: "Escribe tu idea temática",
-            labelTextEn: "What music do you want today?",
-            hintText: "Ej. Baladas acústicas melancólicas para un día lluvioso",
-            hintTextEn: "E.g. 80s synthwave for driving",
-            onSubmit: "generate_ai",
-            trailingIcon: "magic",
-            trailingLabel: "Crear",
-            trailingLabelEn: "Create",
-            onTrailingTap: "generate_ai"
-          },
-          {
-            type: "ElevatedButton",
-            key: "btn_ai_exec",
-            labelText: "Generar Playlist con IA",
-            labelTextEn: "Generate AI Playlist",
-            icon: "magic",
-            onPressed: "generate_ai"
-          }
-        ]
-      }
-    ];
+    const children = [];
+
+    children.push({
+      type: "heroCard",
+      key: "hero_ai",
+      title: "Playlist Inteligente con IA",
+      titleEn: "AI Smart Playlist",
+      text: "Describe cualquier momento o estilo musical y la IA creará una selección real y personalizada.",
+      textEn: "Describe any mood or style and the AI will build a real, personalised selection.",
+      image: "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=1200&q=80",
+      buttons: [{
+        type: "TextButton",
+        key: "hero_ai_scroll",
+        labelText: "Ver ideas rápidas",
+        labelTextEn: "See quick ideas",
+        icon: "expand_more",
+        onPressed: { ui: [{ focus: "ai_prompt_card" }] }
+      }]
+    });
+
+    children.push({
+      type: "Card",
+      key: "ai_prompt_card",
+      padding: 16,
+      variant: "filled",
+      children: [
+        { type: "Text", key: "ai_t1", text: "¿Qué te apetece escuchar?", textEn: "What do you feel like hearing?", style: "h3" },
+        { type: "Text", key: "ai_desc", text: "Toca una idea rápida o escribe tu propia descripción:", textEn: "Tap a quick idea or write your own description:", color: "muted" },
+        {
+          type: "Chips",
+          key: "ai_quick_chips",
+          onChange: "quick_ai_prompt",
+          options: [
+            { value: "Rock clásico legendario de los 70 y 80", label: "Rock Clásico", labelEn: "Classic Rock" },
+            { value: "Éxitos de reggaetón y pop latino 2024", label: "Pop & Urbano", labelEn: "Pop & Urban" },
+            { value: "Lo-Fi relajante y chill para estudiar concentrado", label: "Lo-Fi Chill", labelEn: "Lo-Fi Chill" },
+            { value: "Música electrónica energizante para entrenar en el gym", label: "Gym & Workout", labelEn: "Gym & Workout" },
+            { value: "Synthwave y retrowave de noche en la ciudad", label: "Synthwave 80s", labelEn: "Synthwave 80s" }
+          ]
+        },
+        {
+          type: "TextField",
+          key: "aiPrompt",
+          labelText: "Escribe tu idea temática",
+          labelTextEn: "What music do you want today?",
+          hintText: "Ej. Baladas acústicas melancólicas para un día lluvioso",
+          hintTextEn: "E.g. 80s synthwave for driving",
+          onSubmitted: "generate_ai",
+          trailingIcon: "magic",
+          trailingLabel: "Crear",
+          trailingLabelEn: "Create",
+          onTrailingTap: "generate_ai"
+        },
+        {
+          type: "ElevatedButton",
+          key: "btn_ai_exec",
+          labelText: "Generar Playlist con IA",
+          labelTextEn: "Generate AI Playlist",
+          icon: "magic",
+          onPressed: "generate_ai"
+        }
+      ]
+    });
 
     if (s.aiLoading) {
-      children.push({ type: "Skeleton", key: "skel_ai", variant: "list", rows: 6, padding: 12 });
+      children.push({
+        type: "LinearProgressIndicator",
+        key: "ai_progress",
+        labelText: "La IA está eligiendo tus canciones...",
+        labelTextEn: "The AI is picking your songs..."
+      });
+      children.push({ type: "Skeleton", key: "skel_ai", shape: "line", lines: 5 });
     } else if (aiList.length) {
-      // Carrusel visual de los temas generados
-      children.push({
-        type: "titleRail",
-        key: "ai_rail_results",
-        title: "Selección creada por la IA",
-        items: aiList
-      });
-
-      // Lista interactiva con botón de reproducción
-      children.push({
-        type: "Card",
-        key: "ai_list_card",
-        padding: 8,
-        variant: "outlined",
-        children: [
-          { type: "Text", key: "ai_list_title", text: "Canciones en tu Lista", style: "h4" },
-          ...aiList.map((item, idx) => renderMusicTile(item, idx, "ai_it_"))
-        ]
-      });
+      children.push(sectionHead("ai_list_head", "Selección creada por la IA", "Created by the AI"));
+      children.push({ type: "titleRail", key: "ai_rail_results", title: "Tu lista de hoy", items: aiList });
+      children.push(tileColumn("ai_tiles", aiList, "ai_it_", 15));
     } else {
       children.push({
         type: "emptyState",
@@ -2192,133 +2323,86 @@ export async function screen({ state, route, device, size, lang, installed }) {
         title: "Tu DJ Personal con Inteligencia Artificial",
         titleEn: "Your AI Playlist Creator",
         text: "Toca una de las sugerencias rápidas de arriba o escribe cualquier descripción.",
+        textEn: "Tap one of the quick ideas above or write any description.",
         icon: "magic"
       });
     }
 
-    bodyNode = {
-      type: "SingleChildScrollView",
-      key: "ai_scroll",
-      children: [
-        {
-          type: "Column",
-          key: "ai_col",
-          gap: 16,
-          padding: 12,
-          children
-        }
-      ]
+    bodyNode = scrollCol("ai_scroll", whatsNewNodes().concat(children, [overflowMenu()]));
+    fab = {
+      type: "FloatingActionButton",
+      key: "fab_ai",
+      icon: "magic",
+      labelText: "Generar",
+      labelTextEn: "Generate",
+      onPressed: "generate_ai"
     };
+
+  // --------------------------------------------------------------------------- 4 · Mi Música
   } else if (tab === "library") {
     const rawLib = s.libraryItems || [];
     const filter = s.libFilter || "all";
-    const hasSess = sessionActive(s);
+    const children = [];
 
     if (hasSess) {
       const tracks = [];
       const playlists = [];
-      const others = [];
+      const albums = [];
       for (const it of rawLib) {
         const meta = parseItemType(it.ref, it.badges);
         if (meta.isTrack) tracks.push(it);
-        else if (meta.isPlaylist || String(it.ref || "").startsWith("b:")) playlists.push(it);
-        else others.push(it);
+        else if (String(it.ref || "").startsWith("b:")) playlists.push(it);
+        else albums.push(it);
       }
 
-      const children = [
-        {
-          type: "Card",
-          key: "lib_user_card",
-          padding: 14,
-          variant: "outlined",
-          children: [
-            {
-              type: "ListTile",
-              key: "lib_user_tile",
-              title: "Mi Biblioteca Sincronizada",
-              titleEn: "My synced library",
-              subtitle: rawLib.length
-                ? "Conectado a tu cuenta · " + rawLib.length + " elementos guardados"
-                : "Conectado a tu cuenta oficial de YouTube Music",
-              subtitleEn: "Connected to your YouTube Music account",
-              leading: { type: "CircleAvatar", key: "lib_avatar", radius: 24, icon: "music" },
-              trailing: { type: "Icon", key: "lib_open_account", name: "arrow_forward" },
-              onTap: "switch_screen_tab_account"
-            }
-          ]
-        }
-      ];
-
-      // Filtro por tipo de contenido guardado.
       children.push({
         type: "Card",
-        key: "lib_filter_card",
+        key: "lib_user_card",
         padding: 8,
-        variant: "outlined",
-        children: [
-          {
-            type: "SingleChildScrollView",
-            key: "lib_filter_scroll",
-            direction: "horizontal",
-            children: [{
-              type: "Chips",
-              key: "lib_filter",
-              value: filter,
-              onChange: "filter_library",
-              options: [
-                { value: "all", label: "Todo", labelEn: "All" },
-                { value: "playlists", label: "Listas", labelEn: "Playlists" },
-                { value: "albums", label: "Álbumes", labelEn: "Albums" },
-                { value: "tracks", label: "Me gusta", labelEn: "Liked" }
-              ]
-            }]
-          }
-        ]
+        variant: "filled",
+        children: [{
+          type: "ListTile",
+          key: "lib_user_tile",
+          title: s.accountName || "Mi Biblioteca Sincronizada",
+          titleEn: s.accountName || "My synced library",
+          subtitle: rawLib.length
+            ? "Conectado a tu cuenta · " + rawLib.length + " elementos guardados"
+            : "Conectado a tu cuenta oficial de YouTube Music",
+          subtitleEn: rawLib.length
+            ? "Connected to your account · " + rawLib.length + " saved items"
+            : "Connected to your YouTube Music account",
+          leading: { type: "CircleAvatar", key: "lib_avatar", radius: 32, icon: "music" },
+          trailing: { type: "Icon", key: "lib_open_account", name: "arrow_forward" },
+          onTap: "switch_screen_tab_account"
+        }]
       });
 
+      children.push(chipsRow("lib_filter", filter, "filter_library", [
+        { value: "all", label: "Todo", labelEn: "All" },
+        { value: "playlists", label: "Listas", labelEn: "Playlists" },
+        { value: "albums", label: "Álbumes", labelEn: "Albums" },
+        { value: "tracks", label: "Me gusta", labelEn: "Liked" }
+      ]));
+
       if (!s.libraryLoaded) {
-        children.push({ type: "Skeleton", key: "skel_lib", variant: "list", rows: 8, padding: 12 });
+        children.push({ type: "Skeleton", key: "skel_lib", shape: "card" });
+        children.push({ type: "Skeleton", key: "skel_lib_lines", shape: "line", lines: 6 });
       } else if (rawLib.length) {
-        const showPlaylists = filter === "all" || filter === "playlists";
-        const showAlbums = filter === "all" || filter === "albums";
-        const showTracks = filter === "all" || filter === "tracks";
         let shown = 0;
-        if (showPlaylists && playlists.length) {
+        if ((filter === "all" || filter === "playlists") && playlists.length) {
           shown++;
-          children.push({
-            type: "titleRail",
-            key: "lib_rail_playlists",
-            title: "Tus listas de reproducción",
-            items: playlists
-          });
+          children.push({ type: "titleRail", key: "lib_rail_playlists", title: "Tus listas de reproducción", items: playlists.slice(0, 25) });
         }
-        if (showAlbums && others.length) {
+        if ((filter === "all" || filter === "albums") && albums.length) {
           shown++;
-          children.push({
-            type: "titleRail",
-            key: "lib_rail_albums",
-            title: "Álbumes guardados",
-            items: others
-          });
+          children.push(sectionHead("lib_albums_head", "Álbumes guardados", "Saved albums"));
+          children.push({ type: "titleGrid", key: "lib_grid_albums", columns: 3, items: albums.slice(0, 30) });
         }
-        if (showTracks && tracks.length) {
+        if ((filter === "all" || filter === "tracks") && tracks.length) {
           shown++;
-          children.push({
-            type: "titleRail",
-            key: "lib_rail_tracks",
-            title: "Canciones que te gustan (Me gusta)",
-            items: tracks.slice(0, 20)
-          });
-          children.push({
-            type: "Card",
-            key: "lib_tracks_card",
-            padding: 8,
-            variant: "outlined",
-            children: [
-              { type: "Text", key: "lib_t_head", text: "Tus Temas Favoritos", style: "h4" },
-              ...tracks.slice(0, 15).map((item, idx) => renderMusicTile(item, idx, "lib_t_"))
-            ]
-          });
+          children.push(sectionHead("lib_tracks_head", "Canciones que te gustan", "Songs you like"));
+          children.push({ type: "titleRail", key: "lib_rail_tracks", title: "Me gusta", items: tracks.slice(0, 25) });
+          children.push(tileColumn("lib_tiles", tracks, "lib_t_", 15));
         }
         if (!shown) {
           children.push({
@@ -2327,6 +2411,7 @@ export async function screen({ state, route, device, size, lang, installed }) {
             title: "Nada en este filtro",
             titleEn: "Nothing in this filter",
             text: "Selecciona «Todo» arriba para ver toda tu biblioteca.",
+            textEn: "Pick «All» above to see your whole library.",
             icon: "filter_list"
           });
         }
@@ -2335,271 +2420,350 @@ export async function screen({ state, route, device, size, lang, installed }) {
           type: "emptyState",
           key: "lib_empty",
           title: s.libraryError ? "No se pudo cargar tu biblioteca" : "No se encontraron listas guardadas",
+          titleEn: s.libraryError ? "We couldn't load your library" : "No saved lists found",
           text: s.libraryError || "Comprueba que las listas estén guardadas en la biblioteca de YouTube Music y actualiza para volver a sincronizar.",
+          textEn: "Make sure the lists are saved in your YouTube Music library and refresh to sync again.",
           icon: s.libraryError ? "warning" : "music"
         });
       }
 
-      bodyNode = {
-        type: "SingleChildScrollView",
-        key: "lib_scroll",
-        children: [
-          {
-            type: "Column",
-            key: "lib_col",
-            gap: 16,
-            padding: 12,
-            children
-          }
-        ]
+      fab = {
+        type: "FloatingActionButton",
+        key: "fab_sync",
+        icon: "sync",
+        labelText: "Sincronizar",
+        labelTextEn: "Sync",
+        onPressed: "switch_screen_tab_library"
       };
     } else {
-      // Modo Invitado con diseño interactivo, explicaciones visuales y pegado directo en 1 paso
-      bodyNode = {
-        type: "SingleChildScrollView",
-        key: "lib_guest_scroll",
-        children: [
+      // Modo invitado: la guía completa en un flujo de pasos, con el formulario siempre a la vista.
+      children.push({
+        type: "MaterialBanner",
+        key: "guest_banner",
+        role: "info",
+        title: "Estás en Modo Invitado",
+        titleEn: "You are in guest mode",
+        text: "Vincula tu cuenta de YouTube Music para acceder a tus «Me gusta», artistas seguidos y playlists personales.",
+        textEn: "Link your YouTube Music account to reach your liked songs, followed artists and personal playlists.",
+        action: { label: "Vincular cuenta", labelEn: "Link account", onTap: "link_account" }
+      });
+
+      children.push({
+        type: "steps",
+        key: "guest_steps",
+        items: [
           {
-            type: "Column",
-            key: "lib_guest_col",
-            padding: 16,
-            gap: 16,
-            children: [
-              {
-                type: "banner",
-                key: "guest_banner",
-                role: "info",
-                title: "Estás en Modo Invitado",
-                text: "Vincula tu cuenta de YouTube Music para acceder a tus «Me gusta», artistas seguidos y playlists personales."
-              },
-              {
-                type: "Card",
-                key: "card_guide",
-                padding: 16,
-                variant: "outlined",
-                children: [
-                  { type: "Text", key: "g_t1", text: "Guía Rápida: Cómo extraer tus cookies", style: "h3" },
-                  { type: "Text", key: "g_sub", text: "Elige el método según el dispositivo que estés usando:", color: "muted" },
-                  {
-                    type: "ExpansionTile",
-                    key: "guest_guide_methods",
-                    items: [
-                      {
-                        key: "m_android",
-                        title: "Método 1: En tu celular Android",
-                        titleEn: "Method 1: On your Android phone",
-                        children: [
-                          { type: "Text", key: "g_m1_1", text: "1. Instala Kiwi Browser desde la Google Play Store." },
-                          { type: "Text", key: "g_m1_2", text: "2. En Kiwi, abre la Chrome Web Store e instala la extensión Cookie-Editor." },
-                          { type: "Text", key: "g_m1_3", text: "3. Entra a music.youtube.com e inicia sesión con tu cuenta de Google." },
-                          { type: "Text", key: "g_m1_4", text: "4. Toca el menú de tres puntos de Kiwi, elige Cookie-Editor, Export y Export as Header Value." },
-                          { type: "Text", key: "g_m1_5", text: "5. Pega el texto en la caja de abajo y pulsa Vincular." }
-                        ]
-                      },
-                      {
-                        key: "m_pc",
-                        title: "Método 2: Desde una PC",
-                        titleEn: "Method 2: From a computer",
-                        children: [
-                          { type: "Text", key: "g_m2_1", text: "1. Abre music.youtube.com en Chrome o Edge con tu cuenta de Google." },
-                          { type: "Text", key: "g_m2_2", text: "2. Presiona F12 (Herramientas de Desarrollador) y ve a la pestaña Red (Network)." },
-                          { type: "Text", key: "g_m2_3", text: "3. Recarga la página y haz clic en cualquier petición (por ejemplo browse o next)." },
-                          { type: "Text", key: "g_m2_4", text: "4. En Encabezados de solicitud, copia todo el valor que sale en «cookie»." },
-                          { type: "Text", key: "g_m2_5", text: "5. Envíatelo a tu móvil por WhatsApp o Telegram y pégalo abajo." }
-                        ]
-                      }
-                    ]
-                  }
-                ]
-              },
-              {
-                type: "Card",
-                key: "card_paste",
-                padding: 16,
-                variant: "filled",
-                children: [
-                  { type: "Text", key: "p_title", text: "Vincular Cuenta en 1 Solo Paso", style: "h3" },
-                  { type: "Text", key: "p_desc", text: "Pega aquí todo el texto de tus cookies. El plugin lo analiza, divide y guarda automáticamente:", color: "muted" },
-                  {
-                    type: "TextField",
-                    key: "rawCookiesInput",
-                    labelText: "Pegar Cookies Aquí",
-                    hintText: "Ej. SAPISID=...; __Secure-3PAPISID=...; (o texto de Cookie-Editor)",
-                    maxLines: 4
-                  },
-                  {
-                    type: "ElevatedButton",
-                    key: "btn_save_cookies",
-                    labelText: "Vincular Cuenta Ahora",
-                    icon: "check",
-                    onPressed: "save_cookies"
-                  }
-                ]
-              }
-            ]
-          }
-        ]
-      };
-    }
-  } else {
-    // tab === "account"
-    const hasSess = sessionActive(s);
-    const is8d = kino.config.get("audio8d") === true;
-    const qual = kino.config.get("quality") || "aac";
-    const sessionBad = hasSess && s.accountChecked && !s.accountName;
-    bodyNode = {
-      type: "SingleChildScrollView",
-      key: "acc_scroll",
-      children: [
-        {
-          type: "Column",
-          key: "acc_col",
-          padding: 16,
-          gap: 16,
-          children: [
-            {
-              type: "Card",
-              key: "card_account",
-              padding: 16,
-              variant: "outlined",
-              children: [
+            key: "step_copy",
+            title: "Copia tus cookies",
+            titleEn: "Copy your cookies",
+            subtitle: "Desde Android o PC, en menos de un minuto",
+            subtitleEn: "From Android or a PC, in under a minute",
+            state: "current",
+            children: [{
+              type: "ExpansionTile",
+              key: "guest_guide_methods",
+              items: [
                 {
-                  type: "ListTile",
-                  key: "acc_status_tile",
-                  title: "Cuenta de YouTube Music",
-                  titleEn: "YouTube Music account",
-                  subtitle: !hasSess ? "Modo invitado (sin sesión)"
-                    : sessionBad ? "YouTube no reconoce esta sesión"
-                    : s.accountName ? "Sesión activa como " + s.accountName
-                    : "Sesión activa y sincronizada",
-                  subtitleEn: !hasSess ? "Guest mode (no session)"
-                    : sessionBad ? "YouTube does not recognise this session"
-                    : s.accountName ? "Session active as " + s.accountName
-                    : "Session active and synced",
-                  leading: { type: "CircleAvatar", key: "acc_avatar", radius: 24, icon: !hasSess ? "person" : sessionBad ? "info" : "check" },
-                  trailing: { type: "Icon", key: "acc_status_icon", name: !hasSess ? "info" : sessionBad ? "info" : "check" }
+                  key: "m_android",
+                  title: "Método 1: En tu celular Android",
+                  titleEn: "Method 1: On your Android phone",
+                  open: true,
+                  children: [
+                    { type: "Text", key: "g_m1_1", text: "1. Instala Kiwi Browser desde la Google Play Store." },
+                    { type: "Text", key: "g_m1_2", text: "2. En Kiwi, abre la Chrome Web Store e instala la extensión Cookie-Editor." },
+                    { type: "Text", key: "g_m1_3", text: "3. Entra a music.youtube.com e inicia sesión con tu cuenta de Google." },
+                    { type: "Text", key: "g_m1_4", text: "4. Toca el menú de tres puntos de Kiwi, elige Cookie-Editor, Export y Export as Header Value." },
+                    { type: "Text", key: "g_m1_5", text: "5. Pega el texto en la caja de abajo y pulsa Vincular." }
+                  ]
                 },
-                ...(hasSess ? [
-                  {
-                    type: "ElevatedButton",
-                    key: "btn_linked",
-                    labelText: "Cuenta vinculada",
-                    labelTextEn: "Account linked",
-                    icon: "check",
-                    enabled: false
-                  },
-                  {
-                    type: "TextButton",
-                    key: "btn_logout",
-                    labelText: "Cerrar sesión",
-                    labelTextEn: "Log out",
-                    onPressed: "logout_session"
-                  }
-                ] : [
-                  accountOptionsNode()
-                ])
-              ]
-            },
-            {
-              type: "settings",
-              key: "acc_settings_form",
-              keys: [
-                "about",
-                "account",
-                "cookieA",
-                "cookieB",
-                "cookieC",
-                "cookieD",
-                "linked",
-                "logout",
-                "playback",
-                "quality",
-                "method",
-                "audio8d",
-                "content",
-                "hideExplicit"
-              ],
-              onSaved: "settings_saved"
-            },
-            {
-              type: "Card",
-              key: "card_recommended",
-              padding: 16,
-              variant: "outlined",
-              children: [{ type: "Text", key: "rec_head", text: "Plugins recomendados", style: "h3" }].concat(
-                RECOMMENDED_PLUGINS.map((p) => ({
-                  type: "ListTile",
-                  key: "tile_install_" + p.key,
-                  title: p.title,
-                  subtitle: lastInstalled[p.repo] === true ? "Instalado" : p.subtitle,
-                  trailing: { type: "Icon", name: lastInstalled[p.repo] === true ? "check" : "download" },
-                  onTap: "install_plugin_" + p.key
-                }))
-              )
-            },
-            {
-              type: "Card",
-              key: "card_about",
-              padding: 16,
-              variant: "outlined",
-              children: [
                 {
-                  type: "ListTile",
-                  key: "about_tile",
-                  title: "Acerca de YTMusic para Kino",
-                  titleEn: "About YTMusic for Kino",
-                  subtitle: "Versión 0.5.21 · Creado por JuandreXter",
-                  subtitleEn: "Version 0.5.21 · Created by JuandreXter",
-                  leading: { type: "CircleAvatar", key: "about_avatar", radius: 24, icon: "info" },
-                  dense: true
+                  key: "m_pc",
+                  title: "Método 2: Desde una PC",
+                  titleEn: "Method 2: From a computer",
+                  children: [
+                    { type: "Text", key: "g_m2_1", text: "1. Abre music.youtube.com en Chrome o Edge con tu cuenta de Google." },
+                    { type: "Text", key: "g_m2_2", text: "2. Presiona F12 (Herramientas de Desarrollador) y ve a la pestaña Red (Network)." },
+                    { type: "Text", key: "g_m2_3", text: "3. Recarga la página y haz clic en cualquier petición (por ejemplo browse o next)." },
+                    { type: "Text", key: "g_m2_4", text: "4. En Encabezados de solicitud, copia todo el valor que sale en «cookie»." },
+                    { type: "Text", key: "g_m2_5", text: "5. Envíatelo a tu móvil por WhatsApp o Telegram y pégalo abajo." }
+                  ]
                 }
               ]
-            }
-          ]
-        }
+            }]
+          },
+          {
+            key: "step_paste",
+            title: "Pega las cookies",
+            titleEn: "Paste the cookies",
+            subtitle: "En el formulario de abajo, en un solo paso",
+            subtitleEn: "In the form below, in one step",
+            state: "pending"
+          },
+          {
+            key: "step_enjoy",
+            title: "Disfruta de tu biblioteca",
+            titleEn: "Enjoy your library",
+            subtitle: "Listas, álbumes y Me gusta aparecerán aquí",
+            subtitleEn: "Lists, albums and liked songs will show here",
+            state: "pending"
+          }
+        ]
+      });
+
+      children.push({
+        type: "Card",
+        key: "card_paste",
+        padding: 16,
+        variant: "filled",
+        children: [
+          { type: "Text", key: "p_title", text: "Vincular cuenta en 1 solo paso", textEn: "Link your account in one step", style: "h3" },
+          { type: "Text", key: "p_desc", text: "Pega aquí todo el texto de tus cookies. El plugin lo analiza, divide y guarda automáticamente:", textEn: "Paste all of your cookie text here. The plugin splits and saves it for you:", color: "muted" },
+          {
+            type: "TextField",
+            key: "rawCookiesInput",
+            labelText: "Pegar cookies aquí",
+            labelTextEn: "Paste cookies here",
+            hintText: "Ej. SAPISID=...; __Secure-3PAPISID=...; (o texto de Cookie-Editor)",
+            hintTextEn: "E.g. SAPISID=...; __Secure-3PAPISID=...; (or Cookie-Editor output)",
+            maxLines: 4
+          },
+          {
+            type: "ElevatedButton",
+            key: "btn_save_cookies",
+            labelText: "Vincular cuenta ahora",
+            labelTextEn: "Link account now",
+            icon: "check",
+            onPressed: "save_cookies"
+          }
+        ]
+      });
+
+      fab = {
+        type: "FloatingActionButton",
+        key: "fab_link",
+        icon: "person",
+        labelText: "Vincular",
+        labelTextEn: "Link",
+        onPressed: "link_account"
+      };
+    }
+
+    bodyNode = scrollCol("lib_scroll", whatsNewNodes().concat(children, [overflowMenu()]));
+
+  // ------------------------------------------------------------------------------- 5 · Ajustes
+  } else {
+    const qual = kino.config.get("quality") || "aac";
+    const is8d = kino.config.get("audio8d") === true;
+    const children = [];
+
+    children.push({
+      type: "Card",
+      key: "card_account",
+      padding: 8,
+      variant: "filled",
+      children: [
+        {
+          type: "ListTile",
+          key: "acc_status_tile",
+          title: "Cuenta de YouTube Music",
+          titleEn: "YouTube Music account",
+          subtitle: !hasSess ? "Modo invitado (sin sesión)"
+            : sessionBad ? "YouTube no reconoce esta sesión"
+            : s.accountName ? "Sesión activa como " + s.accountName
+            : "Sesión activa y sincronizada",
+          subtitleEn: !hasSess ? "Guest mode (no session)"
+            : sessionBad ? "YouTube does not recognise this session"
+            : s.accountName ? "Session active as " + s.accountName
+            : "Session active and synced",
+          leading: {
+            type: "CircleAvatar",
+            key: "acc_avatar",
+            radius: 32,
+            icon: !hasSess ? "person" : sessionBad ? "warning" : "check"
+          },
+          trailing: { type: "Icon", key: "acc_status_icon", name: !hasSess ? "info" : sessionBad ? "warning" : "check" }
+        },
+        ...(hasSess ? [
+          {
+            type: "ElevatedButton",
+            key: "btn_linked",
+            labelText: "Cuenta vinculada",
+            labelTextEn: "Account linked",
+            icon: "check",
+            enabled: false
+          },
+          {
+            type: "TextButton",
+            key: "btn_logout",
+            labelText: "Cerrar sesión",
+            labelTextEn: "Log out",
+            onPressed: "logout_session"
+          }
+        ] : [accountOptionsNode()])
       ]
+    });
+
+    children.push({
+      type: "Card",
+      key: "card_quick",
+      padding: 8,
+      variant: "outlined",
+      children: [
+        { type: "ListTile", key: "quick_qual", dense: true, title: "Formato de audio", titleEn: "Audio format", subtitle: qual === "opus" ? "Opus (más calidad)" : "AAC (más compatible)", subtitleEn: qual === "opus" ? "Opus (higher quality)" : "AAC (most compatible)", trailing: { type: "Icon", name: "tune" }, onTap: "toggle_quality_setting" },
+        { type: "ListTile", key: "quick_8d", dense: true, title: "Audio 8D", titleEn: "8D audio", subtitle: is8d ? "Activado" : "Desactivado", subtitleEn: is8d ? "On" : "Off", trailing: { type: "Icon", name: is8d ? "check" : "close" }, onTap: "toggle_8d_setting" }
+      ]
+    });
+
+    children.push({ type: "Divider", key: "acc_div_1" });
+
+    children.push({
+      type: "settings",
+      key: "acc_settings_form",
+      keys: ["about", "account", "cookieA", "cookieB", "cookieC", "cookieD", "linked", "logout", "playback", "quality", "method", "audio8d", "content", "hideExplicit"],
+      onSaved: "settings_saved"
+    });
+
+    children.push(sectionHead("rec_head", "Plugins recomendados", "Recommended plugins"));
+    children.push({
+      type: "Column",
+      key: "rec_col",
+      gap: 8,
+      children: RECOMMENDED_PLUGINS.map((p) => ({
+        type: "Card",
+        key: "tile_install_" + p.key,
+        padding: 0,
+        variant: "outlined",
+        children: [{
+          type: "ListTile",
+          key: "install_inner_" + p.key,
+          title: p.title,
+          subtitle: lastInstalled[p.repo] === true ? "Instalado" : p.subtitle,
+          subtitleEn: lastInstalled[p.repo] === true ? "Installed" : p.subtitle,
+          leading: { type: "CircleAvatar", key: "install_avatar_" + p.key, radius: 24, icon: lastInstalled[p.repo] === true ? "check" : "download" },
+          trailing: { type: "Icon", name: lastInstalled[p.repo] === true ? "check" : "download" },
+          onTap: "install_plugin_" + p.key
+        }]
+      }))
+    });
+
+    children.push({ type: "Divider", key: "acc_div_2" });
+
+    children.push({
+      type: "Card",
+      key: "card_about",
+      padding: 8,
+      variant: "outlined",
+      children: [{
+        type: "ListTile",
+        key: "about_tile",
+        title: "Acerca de YTMusic para Kino",
+        titleEn: "About YTMusic for Kino",
+        subtitle: "Versión " + VERSION + " · Creado por JuandreXter",
+        subtitleEn: "Version " + VERSION + " · Created by JuandreXter",
+        leading: { type: "CircleAvatar", key: "about_avatar", radius: 24, icon: "info" },
+        dense: true
+      }]
+    });
+
+    bodyNode = scrollCol("acc_scroll", whatsNewNodes().concat(children, [overflowMenu()]));
+  }
+
+  // ---------------------------------------------------------------------- barra superior
+  const bar = TAB_TITLES[tab] || TAB_TITLES.trending;
+  const barActions = [];
+  if (tab === "search") {
+    barActions.push({
+      type: "IconButton",
+      key: "ab_clear",
+      icon: "close",
+      labelText: "Limpiar búsqueda",
+      labelTextEn: "Clear search",
+      onPressed: "clear_search"
+    });
+  } else if (tab === "trending") {
+    barActions.push({
+      type: "IconButton",
+      key: "ab_refresh",
+      icon: "refresh",
+      labelText: "Recargar",
+      labelTextEn: "Refresh",
+      onPressed: "refresh_screen"
+    });
+  } else if (tab === "ai") {
+    barActions.push({
+      type: "IconButton",
+      key: "ab_generate",
+      icon: "magic",
+      labelText: "Generar playlist",
+      labelTextEn: "Generate playlist",
+      onPressed: "generate_ai"
+    });
+  } else if (tab === "library" && hasSess) {
+    barActions.push({
+      type: "IconButton",
+      key: "ab_sync",
+      icon: "sync",
+      labelText: "Sincronizar biblioteca",
+      labelTextEn: "Sync library",
+      onPressed: "switch_screen_tab_library"
+    });
+  }
+  barActions.push({
+    type: "IconButton",
+    key: "ab_overflow",
+    icon: "more_vert",
+    labelText: "Más opciones",
+    labelTextEn: "More options",
+    onPressed: { ui: [{ open: "ytm_overflow" }] }
+  });
+
+  const appBar = {
+    type: "AppBar",
+    key: "ytm_appbar",
+    title: bar.title,
+    titleEn: bar.titleEn,
+    backgroundColor: "surface",
+    actions: barActions
+  };
+  if (tab === "search") {
+    appBar.leading = {
+      type: "IconButton",
+      key: "ab_back",
+      icon: "arrow_back",
+      labelText: "Volver",
+      labelTextEn: "Back",
+      onPressed: "close_search"
+    };
+  }
+  if (tab === "trending") {
+    appBar.bottom = {
+      type: "TabBar",
+      key: "trend_sections",
+      value: isTrendSection(s.trendSection) ? s.trendSection : "inicio",
+      onChanged: "switch_trend_section",
+      tabs: TREND_SECTIONS
     };
   }
 
-  const tabs = tab !== "search" ? {
-    type: "TabBar",
-    key: "ytm_tab_bar",
-    value: tab,
-    onChanged: "switch_screen_tab",
-    tabs: [
-      { value: "trending", label: "Explorar", labelEn: "Explore" },
-      { value: "ai", label: "Playlist IA", labelEn: "AI Playlist" },
-      { value: "library", label: "Mi Música", labelEn: "My Music" },
-      { value: "account", label: "Ajustes", labelEn: "Settings" }
-    ]
-  } : null;
-
-  // Cada sección ya es un ScrollView. Insertar las pestañas en ese mismo scroll
-  // evita que un Column padre sin altura deje el contenido invisible en Kino TV.
-  if (tabs && bodyNode && bodyNode.children && bodyNode.children[0] && bodyNode.children[0].children) {
-    bodyNode.children[0].children.unshift(tabs);
-  }
+  // ----------------------------------------------------------- navegación inferior (5 pestañas)
+  const navItems = NAV_ITEMS.map((n) => {
+    if (n.key === "account" && sessionBad) return { ...n, badge: { text: "!", color: "warning" } };
+    if (n.key === "library" && hasSess && (s.libraryItems || []).length) return { ...n, badge: "dot" };
+    return n;
+  });
 
   return {
     type: "Scaffold",
     key: "ytm_main_scaffold",
-    floatingActionButton: tab !== "search" ? {
-      type: "FloatingActionButton",
-      key: "fab_search",
-      icon: "search",
-      labelText: "Buscar música",
-      labelTextEn: "Search music",
-      onPressed: "open_search"
-    } : null,
-    // Back on the search view goes back to the tab it came from (Flutter's PopScope); the next Back leaves to Home.
-    onBack: tab === "search" ? "close_search" : null,
-    appBar: tab === "search" ? {
-      type: "AppBar",
-      mergeWithKinoBar: true,
-      leading: { type: "IconButton", key: "search_back", icon: "arrow_back", labelText: "Volver", labelTextEn: "Back", onPressed: "close_search" },
-      title: "Buscar",
-      titleEn: "Search"
-    } : null,
+    appBar,
+    bottomNavigationBar: {
+      type: "NavigationBar",
+      key: "ytm_nav",
+      value: tab,
+      onChanged: "switch_screen_tab",
+      items: navItems
+    },
+    floatingActionButton: fab,
     body: bodyNode
   };
 }
@@ -2615,29 +2779,32 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     s.sessionOff = false;
     s.linkedNow = false;
     await checkSession(s);
-    kino.log("ytmusic screenEvent: loading charts and home rows");
+    kino.log("ytmusic screenEvent: loading sections, charts, home rows and genres");
     try {
-      const [homeRows, sectionData] = await Promise.all([
+      // Los géneros solo se piden la primera vez: después viven en el estado.
+      const genresPromise = (Array.isArray(s.genres) && s.genres.length)
+        ? Promise.resolve(s.genres)
+        : categories().catch(() => []);
+      const [homeRows, sectionData, genres] = await Promise.all([
         home().catch(() => []),
-        section({ tab: "tendencias" }).catch(() => ({ rows: [] }))
+        section({ tab: "tendencias" }).catch(() => ({ rows: [] })),
+        genresPromise
       ]);
 
-      const rails = [];
-      const seenRails = new Set();
-      for (const r of [...homeRows, ...(sectionData.rows || [])]) {
-        if (!r || !r.items || !r.items.length) continue;
-        const title = r.title || "Música destacada";
-        if (seenRails.has(title)) continue;
-        seenRails.add(title);
-        rails.push({ title, items: r.items.slice(0, 25) });
-      }
+      const inicio = railsFromRows(homeRows);
+      const tendencias = railsFromRows(sectionData.rows || []);
+      const rails = mergeRails([inicio, tendencias]);
 
+      s.sections = { inicio, tendencias };
+      s.trendSection = isTrendSection(s.trendSection) ? s.trendSection : (inicio.length ? "inicio" : "tendencias");
+      s.sectionLoading = null;
+      s.genres = Array.isArray(genres) ? genres.filter((g) => g && g.ref && g.title) : [];
       s.rails = rails;
       s.heroItem = rails[0]?.items?.[0] || null;
       s.trendingLoaded = true;
       // Whether this Inicio was asked with the account: after linking or logging out the screen offers to load it again.
       s.railsAuth = sessionActive(s);
-      kino.log("ytmusic screenEvent: rails loaded count:", rails.length);
+      kino.log("ytmusic screenEvent: rails loaded count:", rails.length, "genres:", s.genres.length);
     } catch (e) {
       kino.log("ytmusic screenEvent: error loading trending:", e && e.message);
       s.trendingLoaded = true;
@@ -2681,9 +2848,10 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
   }
 
   if (name === "switch_screen_tab") {
-    s.tab = value || "trending";
-    // TabBar envía este evento con value: "library". Recargar aquí evita
-    // depender del botón secundario switch_screen_tab_library.
+    // La navegación inferior manda el valor de la pestaña; el menú de atajos lo manda como arg.
+    const wanted = String(value || arg || "trending");
+    s.tab = isNavTab(wanted) ? wanted : "trending";
+    // Al entrar en Biblioteca se recarga ahí mismo, sin depender de otro botón.
     if (s.tab === "library") {
       s.libraryLoaded = false;
       if (savedCookie()) {
@@ -2701,6 +2869,53 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
       return { state: s, toast: s.libraryItems && s.libraryItems.length ? "Biblioteca sincronizada" : undefined };
     }
     return { state: s };
+  }
+
+  // Pestañas del AppBar en Explorar: Para ti / Explorar / Tendencias. La que falta se carga al vuelo.
+  if (name === "switch_trend_section") {
+    const wanted = String(value || arg || "inicio");
+    if (!isTrendSection(wanted)) return { state: s };
+    s.trendSection = wanted;
+    if (!s.sections) s.sections = {};
+    const cached = s.sections[wanted];
+    if (Array.isArray(cached) && cached.length) return { state: s };
+    s.sectionLoading = wanted;
+    try {
+      const data = await section({ tab: wanted });
+      s.sections[wanted] = railsFromRows((data && data.rows) || []);
+    } catch (e) {
+      kino.log("ytmusic screenEvent: section load failed:", wanted, e && e.message);
+      s.sections[wanted] = [];
+    }
+    s.sectionLoading = null;
+    return { state: s, toast: s.sections[wanted].length ? undefined : "No hay contenido en esta sección" };
+  }
+
+  // El botón «limpiar» del AppBar de Buscar: borra la consulta y los resultados.
+  if (name === "clear_search") {
+    if (!s.inputs) s.inputs = {};
+    s.inputs.searchQuery = "";
+    s.searchResults = [];
+    s.searched = false;
+    s.lastQuery = "";
+    s.searching = false;
+    s.searchFilter = "all";
+    return { state: s, ui: [{ hide: "search_loading_card" }, { focus: "searchQuery" }] };
+  }
+
+  // «Entendido» del aviso de novedades: se guarda la versión vista en kino.storage (no en ajustes) y el aviso no
+  // vuelve a salir hasta que cambie de versión; una actualización nueva usa otras claves y se muestra sola.
+  if (name === "whats_new_dismiss") {
+    try {
+      kino.storage.set(WHATS_NEW_KEY, String(VERSION));
+    } catch (e) {
+      kino.log("ytmusic screenEvent: could not save what's new:", e && e.message);
+    }
+    return {
+      state: s,
+      ui: [{ hide: whatsNewKey("whats_new") }, { hide: whatsNewKey("whats_new_list") }],
+      toast: "Novedades guardadas: volverán a verse en la próxima actualización"
+    };
   }
 
   if (name === "switch_screen_tab_account") {

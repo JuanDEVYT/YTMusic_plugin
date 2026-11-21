@@ -1,8 +1,17 @@
-> **Versión de Kino con letras y búsqueda mejorada** (fork de [JuanDEVYT/YTMusic_plugin](https://github.com/JuanDEVYT/YTMusic_plugin), con licencia Apache 2.0, todo el crédito del plugin es de Juan). Cambios sobre la 0.5.16: cada canción lleva el id de YouTube (`ids.youtube`) para que las letras sean exactas; la pestaña Ajustes ofrece instalar los plugins de letras de YouTube Music, LRCLIB y Better Lyrics (`recommends`, con estado "Instalado"); la búsqueda tiene una sola barra con flecha de atrás, spinner y el Atrás del sistema vuelve a la pestaña anterior (`onBack`, `mergeWithKinoBar`). Además, en Ajustes puedes **vincular tu cuenta desde una ventana de Kino** (inicias sesión con Google y Kino guarda las cookies por el plugin, también se sincronizan con tus otros aparatos) o hacerlo a mano con la guía de siempre. Necesita Kino 0.9.81 o superior para estas mejoras; con uno anterior funciona como el original. No aparece en la tienda de Kino (`"discoverable": false`): se instala escribiendo `kinotvapp/YTMusic_plugin` en Agregar plugin.
+> **Versión de Kino con letras y búsqueda mejorada** (fork de [JuanDEVYT/YTMusic_plugin](https://github.com/JuanDEVYT/YTMusic_plugin), con licencia Apache 2.0, todo el crédito del plugin es de Juan). Cambios sobre la 0.5.16: cada canción lleva el id de YouTube (`ids.youtube`) para que las letras sean exactas; la pestaña Ajustes ofrece instalar los plugins de letras de YouTube Music, LRCLIB y Better Lyrics (`recommends`, con estado "Instalado"); la búsqueda tiene una sola barra con flecha de atrás y spinner. Además, en Ajustes puedes **vincular tu cuenta desde una ventana de Kino** (inicias sesión con Google y Kino guarda las cookies por el plugin, también se sincronizan con tus otros aparatos) o hacerlo a mano con la guía de siempre. Necesita Kino 0.9.81 o superior para estas mejoras; con uno anterior funciona como el original. No aparece en la tienda de Kino (`"discoverable": false`): se instala escribiendo `kinotvapp/YTMusic_plugin` en Agregar plugin.
 
 # YouTube Music para Kino
 
 Plugin de música para Kino (apiVersion 8, Kino 0.9.54 o superior): busca, explora una sección propia, abre álbumes y listas, y reproduce el audio de YouTube Music. Con tu sesión, también ves tus **Me gusta** y **tus listas**.
+
+## Novedades de la 0.6.5
+
+- **Interfaz nueva con barra de navegación inferior**: `NavigationBar` de cinco pestañas (Explorar, Buscar, IA, Mi Música y Ajustes) con `Scaffold`, `AppBar` propio en cada pestaña y botón flotante contextual.
+- **Explorar con secciones en el `AppBar`**: Para ti, Explorar y Tendencias como pestañas (`TabBar`); la que falta se carga al volver a tocarla, con `Skeleton` mientras llega.
+- **Mucho más material de Kino**: `heroCard`, `titleRail`, `titleGrid`, `ListTile`, `CircleAvatar`, `Chips`, `MaterialBanner`, `ExpansionTile`, `steps`, `emptyState`, `settings`, `PopupMenuButton` (menú «más» del `AppBar`), `Divider`, indicadores de carga y botones.
+- **Buscar es una pestaña de verdad**: mantiene sus eventos (`open_search`, `close_search`) y suma `clear_search` desde el `AppBar`.
+- **Arreglos**: se quitaron `onBack` y `mergeWithKinoBar` (no existen en el contrato y Kino los descartaba en silencio) y el `Skeleton` original usaba `variant`/`rows`, que no son props válidos; ahora es `shape`/`lines`.
+- **Aviso «Novedades»**: al abrir tras cada actualización aparece un `MaterialBanner` con el changelog de la versión en un `ExpansionTile`; «Entendido» lo descarta y guarda la versión vista en `kino.storage`, así vuelve a salir solo cuando cambie la versión.
 
 ## Novedades de la 0.5.0
 
