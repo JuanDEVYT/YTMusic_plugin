@@ -3,7 +3,7 @@
 // enforces (a test in the app pins contract.json to its code).
 //   node sdk/guide-tables.mjs <guide.md>           rewrite every <!-- contract:NAME:start/end --> block
 //   node sdk/guide-tables.mjs <guide.md> --check   exit 1 if a block is out of date
-import { readFileSync, writeFileSync, realpathSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { contract, kb } from "./contract.mjs";
@@ -19,8 +19,6 @@ const R = c.kinoRoom;
 const J = c.kinoJobs;
 const A = c.kinoAi;
 const SH = c.kinoShared;
-const PR = c.protocol;
-const PS = c.playerSlot;
 const PROP_CANON = Object.fromEntries(Object.entries(S.aliases.props).map(([flutter, old]) => [old, flutter]));
 /** The documented (Flutter-style) spelling of a property the contract names by its older name. */
 const canon = (p) => PROP_CANON[p] || p;
@@ -29,7 +27,7 @@ const WIDGET_TEXT = {
   col: "its children in a column", row: "its children in a row; `wrap: true` is the twelve-column layout", box: "its children stacked on each other",
   card: "Kino's card around its children", spacer: "empty space (`SizedBox` its `width`/`height`, `Spacer` its `flex` share)", divider: "a thin rule",
   scroll: "its children, scrolling", grid: "its children in `columns`", text: "plain text (`text`, `textEn`)",
-  image: "a picture on a public host: https, or http where `kino.screen.httpImages` is true (`url`, `alt`, `fallback`)", icon: "one of Kino's icons (`name`)", badge: "a small label (`text`)",
+  image: "an https picture on a public host (`url`, `alt`, `fallback`)", icon: "one of Kino's icons (`name`)", badge: "a small label (`text`)",
   progress: "a progress bar (`value`, `labelText`)", loading: "Kino's spinner (`text`)",
   list: "a lazy list of `items` (nodes), `empty` when there are none, load more", button: "a button (`labelText`, `icon`, `onPressed`, `confirm`, `submit`)",
   textInput: "a text field (`kind`, `maxLength`, `value`, `onSubmitted`; a `trailingIcon` inside it with `trailingLabel` and `onTrailingTap`; `obscureText` masks it)", textArea: "a text field of several lines (`multiline: true` or `maxLines` above 1)",
@@ -51,21 +49,20 @@ const WIDGET_TEXT = {
   appBar: "a Scaffold's top bar: `title`, `leading`, up to four `actions`, a `bottom` TabBar",
   navigationBar: "a Scaffold's bottom bar of 2 to 5 `items` (`value`, `onChanged`)",
   pageView: "pages swiped across with Kino's dots (`initialPage`, `onPageChanged`, `autoPlayMs`); `viewportFraction` < 1 is a carousel",
-  pages: "full-screen pages under Kino's progress bar, swiped or moved with Left and Right; the place is in `state.inputs`; no autoplay",
   steps: "a setup flow in Kino's look: `items` done, current (open, its `children`) or pending; `onStepTap` lets a done step be pressed",
 };
 /** Properties a widget takes besides the ones contract.json lists in layoutProps (the d.ts has the rest). */
 const WIDGET_PROPS = {
   list: ["onEndReached", "loadingMore", "done", S.listHints.field], titleRail: ["onEndReached", "loadingMore", "done"], titleGrid: ["onEndReached", "loadingMore", "done"],
   popup: ["onClose", "buttons", "items", S.declaredPopups.anchor.field], text: [S.textTime.field, S.textTime.formatField],
-  pages: ["onPageChanged"], pageView: ["initialPage", "onPageChanged", "autoPlayMs"], avatar: ["backgroundColor"], listTile: ["leading", "trailing", "subtitle"],
+  pageView: ["initialPage", "onPageChanged", "autoPlayMs"], avatar: ["backgroundColor"], listTile: ["leading", "trailing", "subtitle"],
   // Screen asks.
   textInput: ["obscureText"], settings: [S.screenAsks.onSavedField], qr: S.screenAsks.qr.fields, steps: ["items", S.screenAsks.steps.onStepTapField],
 };
 const GO_TEXT = {
   title: "this plugin's title page (`ref`, `kind`; `id`, `title` and `adult` for a title that is not on the canvas)",
   play: "plays this plugin's title (`ref`, `kind`, as `title`)",
-  search: `Kino's search with \`q\` (at most ${L.maxSearchQueryChars} characters), only this plugin as the source; with \`"scope": "all"\` (apiVersion 17; a lower plugin is refused, logged; any other scope drops the go) Kino's normal search on every source, which needs no \`search\` of yours and gives you nothing back: no results and no list of sources. The 18+ gate works as in Kino's search.`,
+  search: `Kino's search with \`q\` (at most ${L.maxSearchQueryChars} characters), only this plugin as the source`,
   browse: "this plugin's \"Ver más\" list for a `ref`",
   section: "this plugin's section",
   categories: "Kino's Categorías with this plugin's group first (its own screen with `screen.replaces`)",
@@ -75,17 +72,10 @@ const GO_TEXT = {
   url: "an https link in the browser, after Kino's own confirmation sheet (a QR code on a TV)",
   copy: "Kino puts the plugin's text on the clipboard and always shows its own «Copiado» toast (a TV cannot copy)",
   liveChannel: "the player tunes to an En vivo provider's channel (`provider`, `code`), only for a plugin whose player tab declares `\"kinds\": [\"live\"]`",
-  syncProvider: "Kino's sync-provider settings (Ajustes ▸ Conectar ▸ Proveedor), where the person picks this plugin; only for a plugin that declares `syncProvider`",
-  setExperience: "asks for the light (`\"light\"`: no shadows, no effects, square corners) or the full (`\"full\"`) experience of the whole app; Kino asks the person first and changes nothing without their yes",
-  installPlugin: "Kino's own install sheet for `repo` (a plain `owner/name`); nothing installs without the person's own Instalar",
-  plugin: `another plugin's screen at \`route\` with \`args\`, or its search for \`query\`, found by \`repo\` (a GitHub \`owner/name[/path]\`; a URL or an \`@ref\` is dropped); Kino installs it first, after the person's own yes, when it is missing`,
-  useTheme: "turns on one of this plugin's own `appThemes` as Apariencia does, or with `theme: null` goes back to Kino's theme while one of its own is active; opens nothing, Kino shows its own toast and calls `screen` again",
 };
 const CONSENTS = () => [
   ["screen", null], ["library", c.kinoLibrary], ["playerPanelTab", c.manifest.panel.contributes], ["playerControl", c.kinoPlayerControl],
   ["room", R], ["schedule", J], ["ai", A], ["shared", SH],
-  // apiVersion 15: only a `fixed` element asks; its lines are named differently in contract.json.
-  ["playerSlot", { consentLine: PS.fixedConsentLine, switchLabel: PS.switchLabel }],
 ];
 function screenLimitRows() {
   const used = new Set();
@@ -117,7 +107,7 @@ export const TABLES = {
   limits: () => table(["What", "Limit"], [
     ["Manifest / entry file / icon", `${kb(c.manifest.maxBytes)} / ${kb(c.manifest.entryMaxBytes)} / ${kb(c.manifest.iconMaxBytes)}`],
     ["Memory / stack, per plugin", `${kb(c.runtime.memoryBytes)} / ${kb(c.runtime.stackBytes)}`],
-    ["Time per call", `\`search\` ${c.timeoutsMs.search / 1000} s; \`home\`, \`browse\`, \`episodes\`, \`resolve\` ${c.timeoutsMs.home / 1000} s each (\`resolve\` of a plugin Kino itself generates, from a Nuvio scraper or a Stremio addon: ${c.timeoutsMs.nuvioResolve / 1000} s); \`${c.prepare.export}\` ${c.timeoutsMs.prepare / 1000} s (a background call, its answer ignored); \`liveCategories\`, \`liveChannels\`, \`guide\` ${c.timeoutsMs.liveChannels / 1000} s each; \`liveSearch\` ${c.timeoutsMs.liveSearch / 1000} s; \`subtitles\` ${c.timeoutsMs.subtitles / 1000} s; \`track\` ${c.timeoutsMs.track / 1000} s (apiVersion ${c.tracking.apiVersion}); \`segments\` ${c.timeoutsMs.segments / 1000} s (apiVersion ${c.segments.apiVersion}); \`lyrics\` ${c.timeoutsMs.lyrics / 1000} s (apiVersion ${c.lyrics.apiVersion}); \`meta\` ${c.timeoutsMs.meta / 1000} s (apiVersion ${c.output.meta.apiVersion}; past it, no answer); \`section\`, \`categories\` ${c.timeoutsMs.section / 1000} s each (apiVersion 6); \`details\` ${c.timeoutsMs.details / 1000} s (apiVersion ${c.output.details.apiVersion}); \`migrate\` ${c.timeoutsMs.migrate / 1000} s; \`sign\` ${c.timeoutsMs.sign / 1000} s (and ${c.timeoutsMs.signTotal / 1000} s counting its wait); counting all your fetches and sleeps together, but not the time the person spends answering a host question for that call`],
+    ["Time per call", `\`search\` ${c.timeoutsMs.search / 1000} s; \`home\`, \`browse\`, \`episodes\`, \`resolve\` ${c.timeoutsMs.home / 1000} s each (\`resolve\` of a plugin Kino itself generates, from a Nuvio scraper or a Stremio addon: ${c.timeoutsMs.nuvioResolve / 1000} s); \`liveCategories\`, \`liveChannels\`, \`guide\` ${c.timeoutsMs.liveChannels / 1000} s each; \`liveSearch\` ${c.timeoutsMs.liveSearch / 1000} s; \`subtitles\` ${c.timeoutsMs.subtitles / 1000} s; \`track\` ${c.timeoutsMs.track / 1000} s (apiVersion ${c.tracking.apiVersion}); \`segments\` ${c.timeoutsMs.segments / 1000} s (apiVersion ${c.segments.apiVersion}); \`meta\` ${c.timeoutsMs.meta / 1000} s (apiVersion ${c.output.meta.apiVersion}; past it, no answer); \`section\`, \`categories\` ${c.timeoutsMs.section / 1000} s each (apiVersion 6); \`details\` ${c.timeoutsMs.details / 1000} s (apiVersion ${c.output.details.apiVersion}); \`migrate\` ${c.timeoutsMs.migrate / 1000} s; \`sign\` ${c.timeoutsMs.sign / 1000} s (and ${c.timeoutsMs.signTotal / 1000} s counting its wait); counting all your fetches and sleeps together, but not the time the person spends answering a host question for that call`],
     ["Loading the module (its top level)", `${c.timeoutsMs.load / 1000} s`],
     ["Idle sandbox", `closed after ${c.runtime.idleCloseMs / 60000} minutes without calls`],
     ["Consecutive timeouts", `${c.runtime.timeoutsBeforeUnresponsive} in a row and Kino disables the plugin ("No responde")`],
@@ -140,18 +130,15 @@ export const TABLES = {
     [`Tracking (apiVersion ${c.tracking.apiVersion})`, `\`progress\` at most every ${c.tracking.progressIntervalMs / 60000} minutes of playback; \`watched\` once, with ${c.tracking.watched.remainingMs / 60000} minutes or less left and at least ${c.tracking.watched.minFraction * 100}% played; at most ${c.tracking.outbox.maxPerPlugin} events waiting per plugin; an event not delivered within ${c.tracking.outbox.maxAgeMs / 86400000} days is dropped; a retryable failure waits ${c.tracking.outbox.backoffBaseMs / 1000} s, doubling up to ${c.tracking.outbox.backoffMaxMs / 3600000} h, ${c.tracking.outbox.maxAttempts} tries at most`],
     ["Settings", `at most ${c.settings.max} with a value, plus at most ${c.settings.ui.maxItems} \`section\`/\`status\`/\`action\`/\`link\`/\`help\` (apiVersion ${c.settings.ui.apiVersion}; \`link\` and \`help\` apiVersion ${c.settings.configAids.apiVersion}, at most ${c.settings.configAids.maxLinks} of each) and \`qr\` (apiVersion ${c.settings.types.qr.apiVersion}); \`text\` ${c.settings.types.text.maxChars}, \`url\` ${n(c.settings.types.url.maxChars)}, \`password\` ${c.settings.types.password.maxChars} characters; a \`link\`'s address ${n(c.settings.configAids.linkUrlMaxChars)}, a \`help\`'s title ${c.settings.configAids.helpTitleMaxChars} and body ${n(c.settings.configAids.helpBodyMaxChars)}`],
     ["Error messages", `your \`kino.error\` message is a detail for the log, cut at ${c.errors.maxMessageChars} characters; a \`userMessage\` for the person is at most ${c.errors.maxUserMessageChars}`],
-    ["`hosts`", `at least ${c.manifest.minHosts} entry, no upper limit from Kino ${c.manifest.legacyMaxHosts.noLimitFromApp} (only the manifest's ${kb(c.manifest.maxBytes)}; Kino ${c.manifest.legacyMaxHosts.refusedUpToApp} and older refuse more than ${c.manifest.legacyMaxHosts.value}); from apiVersion ${c.manifest.noHostsApiVersion}, none (\`[]\`) when a \`url\` setting exists; from apiVersion ${c.protocol.apiVersion}, none in a provides-only plugin or a screen-only consumer (a non-empty \`consumes\` and \`capabilities\` exactly \`${JSON.stringify(c.protocol.screenOnlyConsumer.capabilities)}\`)`],
+    ["`hosts`", `at least ${c.manifest.minHosts} entry, no upper limit from Kino ${c.manifest.legacyMaxHosts.noLimitFromApp} (only the manifest's ${kb(c.manifest.maxBytes)}; Kino ${c.manifest.legacyMaxHosts.refusedUpToApp} and older refuse more than ${c.manifest.legacyMaxHosts.value}); from apiVersion ${c.manifest.noHostsApiVersion}, none (\`[]\`) when a \`url\` setting exists`],
     [`\`secrets\` (apiVersion ${c.manifest.secrets.apiVersion})`, `at most ${c.manifest.secrets.maxSecrets}; names match \`${c.manifest.secrets.namePattern}\`; a value is 1..${n(c.manifest.secrets.maxValueBytes)} bytes (1..${n(c.manifest.secrets.largeMaxValueBytes)} from apiVersion ${c.manifest.secrets.largeApiVersion}); from apiVersion ${c.manifest.secrets.typed.apiVersion} a cipher key may be typed: \`{ seal, use: "cipher-key", encoding: "hex" | "base64" }\`, ${c.manifest.secrets.typed.keyBytes.join("/")} bytes`],
     [`\`kino.fetch\` \`maxBytes\` (apiVersion ${c.fetch.maxBytes.apiVersion})`, `${c.fetch.maxBytes.min} to ${n(c.fetch.maxBytes.max)} bytes of the body are read, the answer's \`${c.fetch.maxBytes.field}\` says whether it was cut; out of range: \`invalid_request\``],
     [`Screens (\`screen\`, apiVersion ${S.apiVersion})`, `depth ${L.maxDepth}, ${L.maxNodes} nodes, ${L.maxListItems} items per list, state ${kb(L.maxStateBytes)}, a text ${n(L.maxTextChars)} characters; \`screen\` and \`screenEvent\` ${L.callTimeoutMs / 1000} s each; every number in [Screen limits](#screen-limits)`],
     [`\`kino.library\` (apiVersion ${c.kinoLibrary.apiVersion})`, `\`limit\` default ${c.kinoLibrary.defaultLimit}, at most ${c.kinoLibrary.maxLimit}; at most ${c.kinoLibrary.perMinute} calls a minute per plugin; times rounded to the day, \`progress\` to ${c.kinoLibrary.progressStep}`],
-    [`\`kino.library.stats\` (apiVersion ${c.kinoLibrary.stats.apiVersion})`, `one month's aggregates (\`month\` as \`yyyy-mm\`, the current one by default), nothing finer; \`top\` at most ${c.kinoLibrary.stats.topMax} titles; shares the ${c.kinoLibrary.perMinute} calls a minute of \`watched\` and \`saved\`; never 18+, live channels in the totals and never named`],
     [`\`kino.room\` (apiVersion ${R.apiVersion})`, `a payload at most ${n(R.limits.maxPayloadBytes)} bytes and ${R.limits.maxPayloadDepth} levels; ${R.limits.perSecond} messages a second, ${R.limits.perMinute} and ${kb(R.limits.bytesPerMinute)} a minute per member; ${R.limits.minMembers} to ${R.limits.maxMembers} members; ${R.limits.minTtlMin} to ${R.limits.maxTtlMin} minutes (default ${R.limits.defaultTtlMin}); mailbox ${R.limits.mailboxEvents} events or ${R.limits.mailboxMs / 60000} minutes; ${R.limits.maxJoined} joined and ${R.limits.maxHosted} hosted per device, ${R.limits.maxSlotsPerPlugin} per plugin; ${R.limits.joinFailuresBeforeLock} wrong codes lock joins for ${R.limits.lockMs / 1000} s, doubling up to ${R.limits.maxLockMs / 60000} minutes; closed after ${R.limits.backgroundCloseMinutes} minutes in the background (a hosted room shows Kino's notification meanwhile)`],
-    [`Jobs (\`schedule\`, apiVersion ${J.apiVersion})`, `1 to ${J.manifest.maxJobs} jobs, every ${J.manifest.minEveryMin} to ${n(J.manifest.maxEveryMin)} minutes; one run at most ${J.limits.runTimeoutMs / 1000} s, ${J.limits.maxFetches} requests made one at a time, ${kb(J.limits.maxResponseBytes)} of answers and ${kb(J.limits.maxStorageWriteBytes)} written to \`kino.storage\`; ${J.limits.maxRunsPerDay} runs a day per plugin; a failure waits ${J.limits.backoffBaseMin} minutes, doubling up to ${J.limits.backoffMaxMin / 60} h, and ${J.limits.failuresToPause} in a row pause the job; from apiVersion ${J.limits.aiApiVersion} a plugin with \`ai\` approved gets ${J.limits.aiRunTimeoutMs / 1000} s and ${J.limits.aiMaxRequests} requests`],
+    [`Jobs (\`schedule\`, apiVersion ${J.apiVersion})`, `1 to ${J.manifest.maxJobs} jobs, every ${J.manifest.minEveryMin} to ${n(J.manifest.maxEveryMin)} minutes; one run at most ${J.limits.runTimeoutMs / 1000} s, ${J.limits.maxFetches} requests made one at a time, ${kb(J.limits.maxResponseBytes)} of answers and ${kb(J.limits.maxStorageWriteBytes)} written to \`kino.storage\`; ${J.limits.maxRunsPerDay} runs a day per plugin; a failure waits ${J.limits.backoffBaseMin} minutes, doubling up to ${J.limits.backoffMaxMin / 60} h, and ${J.limits.failuresToPause} in a row pause the job`],
     [`\`kino.ai\` (apiVersion ${A.apiVersion})`, `a prompt at most ${n(A.limits.maxPromptBytes)} bytes, \`system\` ${n(A.limits.maxSystemBytes)}; the reply cut at \`maxChars\` (1 to ${n(A.limits.maxChars)}, default ${n(A.limits.defaultMaxChars)}); ${A.limits.perMinute} asks in any minute, ${A.limits.perDay} a day and ${A.limits.maxInFlight} at a time per plugin; ${A.limits.devicePerDay} a day and ${A.limits.deviceMaxInFlight} at a time for every plugin of the device together; ${A.limits.timeoutMs / 1000} s an ask`],
-    [`Player slot (\`playerSlot\`, apiVersion ${PS.apiVersion})`, `1 to ${PS.maxElements} elements in the manifest (all plugins together: ${PS.maxElements} on screen, \`fixed\` first); a \`text\` at most ${PS.textMaxLines} lines (${n(PS.textMaxChars)} characters), a button's \`label\` ${PS.labelMaxChars}; \`refreshMs\` raised to ${n(PS.refreshMsFloor)} or lowered to ${n(PS.refreshMsCeiling)} ms; \`playerSlot\` and \`playerSlotAction\` ${c.timeoutsMs.playerSlot / 1000} s each; until the first answer a failed \`playerSlot\` is retried ${PS.firstFrameRetries} times, ${PS.firstFrameRetryMs / 1000} s apart`],
     [`\`kino.shared\` (apiVersion ${SH.apiVersion})`, `${SH.limits.maxKeys} keys of at most ${SH.limits.maxKeyChars} characters per plugin; a value at most ${kb(SH.limits.maxValueBytes)} and ${SH.limits.maxDepth} levels, ${kb(SH.limits.maxPluginBytes)} in all; ${SH.limits.writesPerMinute} writes a minute; a key's new value travels at most once every ${SH.limits.syncEveryMs / 1000} s`],
-    [`\`kino.plugins.call\` (apiVersion ${PR.apiVersion})`, `a request and an answer at most ${kb(PR.call.maxPayloadBytes)} of JSON; ${PR.call.timeoutMs / 1000} s a call; ${PR.call.maxCalls} calls in any ${PR.call.windowMs / 1000} s per door; a manifest holds at most ${PR.provides.maxDoors} doors (each ${PR.provides.maxCallsPerDoor} calls and ${PR.provides.maxStreamsPerDoor} streams) and ${PR.consumes.maxEntries} \`consumes\` entries; a stream polls every ${PR.provides.streamEverySeconds.min} s at least; ${PR.streams.maxSubscriptionsPerConsumer} live subscriptions per plugin; not in a background job`],
   ]),
   screenWidgets: () => table(["Name", "Older name", "What it is", "Its own properties", "As an input"], S.widgets.map((old) => {
     if (!WIDGET_TEXT[old]) throw new Error(`guide-tables: no description for the screen widget ${old}`);
@@ -193,10 +180,7 @@ export const TABLES = {
   })),
   screenGo: () => table(["`go`", "What opens", "Sent from"], S.goShapes.map((g) => {
     if (!GO_TEXT[g]) throw new Error(`guide-tables: no description for the go shape ${g}`);
-    const from = g === "installPlugin" || g === "plugin" ? `only the person's own ${S.goUrl.fromTriggers.join(" or ")} on your screen (a tap, a submit, the answer to one, a pop-up's button), never a panel; from apiVersion ${S[g === "plugin" ? "goPlugin" : "goInstallPlugin"].apiVersion}`
-      : g === "setExperience" ? `only the person's own ${S.goUrl.fromTriggers.join(" or ")} on your screen (a tap, a submit, the answer to one, a pop-up's button), never a panel; from apiVersion ${S.goSetExperience.apiVersion}`
-      : g === "useTheme" ? `only the person's own ${S.goUrl.fromTriggers.join(" or ")} on your screen (a tap, a submit, the answer to one, a pop-up's button), never a panel; from apiVersion ${S.goUseTheme.apiVersion}`
-      : g === "titleByIds" || g === "url" || g === "copy" || g === "liveChannel" || g === "syncProvider"
+    const from = g === "titleByIds" || g === "url" || g === "copy" || g === "liveChannel"
       ? `only the person's own ${S.goUrl.fromTriggers.join(" or ")} (a tap, a submit, the answer to one, a pop-up's button, a panel press)`
       : g === "screen" ? "a tap, or an answer, the answer to the reserved `open` included (never a timer's or a pop-up's `onClose`)" : "a tap, or the answer to an event (never the answer to `open`, to a timer or to a pop-up's `onClose`)";
     return [`\`${g}\``, GO_TEXT[g], from];
@@ -204,8 +188,8 @@ export const TABLES = {
   screenLimits: () => table(["What", "Limit"], screenLimitRows()),
   screenConsents: () => table(["Capability", "What the person reads", "Red, waits for approval", "The person's switch (your tab in Ajustes)"], CONSENTS().map(([cap, block]) => [
     `\`${cap}\``,
-    block?.consentLine ? `${cap === "playerSlot" ? "with a `fixed` element: " : ""}"${block.consentLine.es}" ("${block.consentLine.en}")` : "nothing: no line of its own",
-    cap === "playerSlot" ? "yes, only when an element is `fixed` (an overlay-only slot asks nothing)" : c.capabilities.needsApproval.includes(cap) ? "yes" : "no",
+    block?.consentLine ? `"${block.consentLine.es}" ("${block.consentLine.en}")` : "nothing: no line of its own",
+    c.capabilities.needsApproval.includes(cap) ? "yes" : "no",
     block?.switchLabel ? `"${block.switchLabel.es}" ("${block.switchLabel.en}")` : "none",
   ])),
   settings: () => table(["type", "value", "can be `required`", "can have a `default`", "longest value"], Object.entries(c.settings.types).map(([t, v]) => [
@@ -248,7 +232,7 @@ export function render(text) {
   });
 }
 
-if (process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url))) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [file, flag] = process.argv.slice(2);
   if (!file) {
     console.error("usage: node sdk/guide-tables.mjs <guide.md> [--check]");

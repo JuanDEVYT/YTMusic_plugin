@@ -1,14 +1,14 @@
 {
   "id": "ytmusic",
   "name": "YouTube Music",
-  "version": "0.6.3",
-  "apiVersion": 20,
+  "version": "0.6.4",
+  "apiVersion": 8,
   "entry": "plugin.js",
   "description": "YouTube Music con interfaz de exploración por carruseles, búsqueda limpia, Playlist IA y biblioteca personal.",
   "author": "JuanDEVYT",
   "creator": "JuandreXter",
   "homepage": "https://github.com/JuanDEVYT/YTMusic_plugin",
-  "recommends": ["kinotvapp/kino-plugin-lyrics-ytmusic", "kinotvapp/kino-plugin-lyrics-lrclib", "JuanDEVYT/BetterLyrics_plugin", "JuanDEVYT/google-session"],
+  "recommends": ["kinotvapp/kino-plugin-lyrics-ytmusic", "kinotvapp/kino-plugin-lyrics-lrclib", "JuanDEVYT/BetterLyrics_plugin"],
   "hosts": [
     "music.youtube.com",
     "www.youtube.com",
@@ -24,29 +24,10 @@
     "resolve",
     "scopedSearch",
     "download",
-    "migrate",
-    "screen",
-    "ai"
+    "migrate"
   ],
   "color": "#FF0050",
   "icon": "icon.png",
-  "visualBrowser": true,
-  "screen": {
-    "label": "YT Music",
-    "labelEn": "YT Music",
-    "icon": "music",
-    "menuOpens": "both",
-    "opensFrom": ["menu", "settings"],
-    "settingsButton": {
-      "label": "Abrir YouTube Music",
-      "labelEn": "Open YouTube Music"
-    }
-  },
-  "panel": {
-    "label": "YT Music",
-    "labelEn": "YT Music",
-    "icon": "music"
-  },
   "section": {
     "label": "YT Music"
   },
@@ -166,11 +147,41 @@
     }
   ],
   "browser": true,
-  "consumes": {
-    "gsession": {
-      "repo": "JuanDEVYT/google-session",
-      "door": "session",
-      "calls": ["begin", "status", "session"]
+  "enhancements": {
+    "14": {
+      "capabilities": [
+        "screen",
+        "ai"
+      ],
+      "screen": {
+        "label": "YT Music",
+        "labelEn": "YT Music",
+        "icon": "music",
+        "menuOpens": "both",
+        "opensFrom": [
+          "menu",
+          "settings"
+        ],
+        "settingsButton": {
+          "label": "Abrir YouTube Music",
+          "labelEn": "Open YouTube Music"
+        }
+      },
+      "panel": {
+        "label": "YT Music",
+        "labelEn": "YT Music",
+        "icon": "music"
+      }
+    },
+    "19": {
+      "panel": {
+        "label": "YT Music",
+        "labelEn": "YT Music",
+        "icon": "music"
+      }
+    },
+    "20": {
+      "visualBrowser": true
     }
   }
 }

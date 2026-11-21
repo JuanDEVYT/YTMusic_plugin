@@ -23,14 +23,14 @@
 // the production private key ever leaving the app's native sources. Never use it to seal a secret
 // for a real, published plugin.
 import { createCipheriv, createHash, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, sign as cryptoSign, verify as cryptoVerify } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve, sep } from "node:path";
 import { contract } from "./contract.mjs";
 
 /** Kino's v1 production public key (spec §3); the private half lives only in the app's native library. */
-export const PRODUCTION_PUBLIC_KEY_HEX = "b13ecf6d231a75bf57ca21d977075c74f914b4416653cf89940897a29393e65c";
+export const PRODUCTION_PUBLIC_KEY_HEX = "b13ecf6d231a75bf57ca21d977075c74f914b4416653cf89940897a29393e65c"; // secretscan:allow
 
 // The fixed 12-byte ASN.1 SubjectPublicKeyInfo prefix for a raw 32-byte X25519 point (RFC 8410).
 const SPKI_PREFIX = Buffer.from("302a300506032b656e032100", "hex");
@@ -357,6 +357,6 @@ function mainSign(opt) {
   }
 }
 
-if (process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url))) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   process.exitCode = await main(process.argv.slice(2));
 }

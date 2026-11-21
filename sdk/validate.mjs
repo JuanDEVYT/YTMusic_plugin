@@ -15,21 +15,18 @@
 // Exit code 0 = Kino would accept it; 1 = it wouldn't (the reasons are on stderr).
 import { sharedSecretWords } from "./shared.mjs";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, realpathSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { checkOutput, checkSettingsOutput, contract, englishCoverage, fetchAnyHost, isScreenOnlyConsumer, isStandaloneSet, kb, maskSetPasswords, prepareNote, prepareWarnings, resolveAheadOf, statusHide, requiredExports, validateManifest, validateManifestWithoutEnhancements } from "./contract.mjs";
+import { checkOutput, checkSettingsOutput, contract, englishCoverage, fetchAnyHost, isStandaloneSet, kb, maskSetPasswords, statusHide, requiredExports, validateManifest, validateManifestWithoutEnhancements } from "./contract.mjs";
 import { resolvePalette } from "./palette.mjs";
-import { protocolBlocks, protocolWarnings } from "./protocol.mjs";
-import { resolveAppTheme } from "./appthemes.mjs";
 import { decodeCipherKey } from "./seal.mjs";
 import { createKino, signingLane } from "./kino-shim.mjs";
 import { loadPlugin, missingGlobalLines, scanMissingGlobals } from "./sandbox.mjs";
 import { call, callMeta, callPanel, markLiveSearch, metaQueryForItem, panelRequest, parseArgs, resolveFirstLiveRef, signExportProblem, unmarkedSearchNote } from "./run.mjs";
 import { loadPlaylist } from "./live-playlist.mjs";
 import { checkPanelOutput, langOf, PANEL_EXTRA_ICONS, PANEL_ICONS, PANEL_ICON_DEFAULT, panelIconKnown, panelIconProblem, settingsLayout } from "./panel.mjs";
-import { parseSlotFrame, slotActionRequest, slotContext } from "./slot.mjs";
 import { checkPanelScreen, checkScreenTimers, isPanelScreen, PANEL_SCREEN, printScreenTree } from "./screen.mjs";
 import { fingerprint, normalizeBinding, verifyEntry } from "./seal.mjs";
 
@@ -74,34 +71,20 @@ export function consentLines(m, { authorFingerprint = null } = {}) {
   if (m.capabilities.includes(contract.manifest.panel.contributes.capability)) line(contract.manifest.panel.contributes.consentLine.es, true);
   // apiVersion 14 "playerControl" (PluginConsent.extraLines, Task 8j): it can pause, resume and move the video by itself: red.
   if (m.capabilities.includes(contract.kinoPlayerControl.capability)) line(contract.kinoPlayerControl.consentLine.es, true);
-  // apiVersion 23 "playerSlot" (PluginConsent.extraLines): only a `fixed` element asks (it holds a place in the player): red.
-  if (m.slot?.hasFixed) line(contract.playerSlot.fixedConsentLine.es, true);
   // apiVersion 14 "room" (PluginConsent.extraLines, Task 8l): people on the Internet reach this device while a room is open: red.
   if (m.capabilities.includes(contract.kinoRoom.capability)) line(contract.kinoRoom.consentLine.es, true);
   // apiVersion 14 "schedule" (PluginConsent.extraLines, Task 8q): it runs by itself in the background, on the person's internet and battery: red.
-  if (m.capabilities.includes(contract.kinoJobs.capability)) line(((m.jobs || []).some((j) => j.perProfile) ? contract.kinoJobs.consentLinePerProfile : contract.kinoJobs.consentLine).es, true);
+  if (m.capabilities.includes(contract.kinoJobs.capability)) line(contract.kinoJobs.consentLine.es, true);
   // apiVersion 14 "ai" (PluginConsent.extraLines, Task 8r): what it sends leaves the device for a third-party AI service: red.
   if (m.capabilities.includes(contract.kinoAi.capability)) line(contract.kinoAi.consentLine.es, true);
   // apiVersion 15 "identity" (PluginConsent.extraLines): who the person is on Telegram may leave the device: red.
   if (m.capabilities.includes(contract.kinoIdentity.capability)) line(contract.kinoIdentity.consentLine.es, true);
   // apiVersion 15 "notifications" (PluginConsent.extraLines): notices in the Home bell: a plain line, not red.
   if (m.capabilities.includes(contract.kinoNotifications.capability)) line(contract.kinoNotifications.consentLine.es);
-  // apiVersion 15 "pluginStore" (PluginConsent.extraLines): a plain line, and a red one for a live store (searches reach its servers).
-  if (m.capabilities.includes(contract.kinoStore.capability)) {
-    line(contract.kinoStore.consentLine.es);
-    if (m.pluginStore?.mode === "live") line(contract.kinoStore.consentLineLive.es, true);
-  }
   // apiVersion 14 "shared" (PluginConsent.extraLines, Task 8q-2): the person's own data between their own devices: a plain line.
   if (m.capabilities.includes(contract.kinoShared.capability)) line(contract.kinoShared.consentLine.es);
   // apiVersion 7 "segments": a plain line, not red (it only learns which title plays): PluginConsent / Segments.CONSENT_LINE.
   if (m.capabilities.includes(contract.segments.capability)) line(contract.segments.consentLine);
-  // apiVersion 19 "lyrics": a plain line, not red (it learns the title and artist of what plays): PluginConsent / Lyrics consent text.
-  if (m.capabilities.includes(contract.lyrics.capability)) line(contract.lyrics.consentLine);
-  // apiVersion 21 "files": a plain line (the person picks every file herself): PluginConsent / ConsentText.Files.
-  if (m.capabilities.includes(contract.files.capability)) line(contract.files.consentLine);
-  // apiVersion 20 "visualBrowser": true (kino.visualBrowser): a warning line (contract.visualBrowser.consentLine, StringsEs.pluginConsent.visualBrowser);
-  // Kino also asks in its own sheet at every open.
-  if (m.visualBrowser) line(contract.visualBrowser.consentLine);
   if (m.secrets && Object.keys(m.secrets).length) line("Usa datos sellados por su autor");
   if (m.telemetry) line(m.telemetry === contract.manifest.telemetry.verbose.value ? contract.manifest.telemetry.verbose.consentLine : contract.manifest.telemetry.consentLine);
   if (authorFingerprint) line(contract.manifest.signature.consentLine);
@@ -119,55 +102,6 @@ export function consentLines(m, { authorFingerprint = null } = {}) {
   // fetchHosts "any" at apiVersion 9 (Kino 0.9.55): PluginConsent.FETCH_HOSTS_LINE, in red.
   if (fetchAnyHost(m)) line(contract.manifest.fetchHosts.consentLine, true);
   return out;
-}
-
-/**
- * Where the docs say what a screen-only consumer declares instead of a placeholder: no host at all (`"hosts": []`). Named, not
- * linked: the public docs site still describes the old rule under its anchor.
- */
-export const PLACEHOLDER_HOST_DOCS = "the plugin guide's section «A consumer's hosts: a screen-only consumer declares none»";
-
-/**
- * Whether [host] is a placeholder, never a host a plugin really loads from: the RFC 2606 / RFC 6761 example and reserved names
- * (`example.com`, `example.org`, `example.net` and their subdomains, anything under `.test`, `.invalid`, `.example`), a
- * leading `*.` read as its domain. Kino accepts them; validate warns, so a scaffold's placeholder never ships unnoticed.
- */
-export function isPlaceholderHost(host) {
-  if (typeof host !== "string") return false;
-  const h = host.trim().toLowerCase().replace(/\.$/, "").replace(/^\*\./, "");
-  return /(^|\.)example\.(com|org|net)$/.test(h) || /(^|\.)(test|invalid|example)$/.test(h);
-}
-
-/**
- * One warning per placeholder entry of the manifest's raw [hosts] (strings or `{ host }` objects). A screen-only consumer
- * ([manifest] with consumes and capabilities exactly ["screen"], apiVersion 20: isScreenOnlyConsumer) is told to declare none.
- */
-export function placeholderHostWarnings(hosts, manifest = null) {
-  if (!Array.isArray(hosts)) return [];
-  const advice = isScreenOnlyConsumer(manifest)
-    ? `a screen-only consumer needs no host: declare none ("hosts": []); its pictures from public addresses (https, and http where kino.screen.httpImages) need no declaration (see ${PLACEHOLDER_HOST_DOCS})`
-    : "declare a host the plugin really loads from";
-  return hosts
-    .map((h) => (typeof h === "string" ? h : h && typeof h === "object" ? h.host : null))
-    .filter(isPlaceholderHost)
-    .map((h) => `hosts: "${h}" is a placeholder host; ${advice}` +
-      (/(^|\.)invalid$/.test(h.trim().toLowerCase().replace(/\.$/, "")) ? " (Kino accepts a .invalid name and never lists it, but it reaches nothing: keep it only on purpose)" : ""));
-}
-
-/**
- * "resolveAhead" (contract.manifest.resolveAhead, additive): the app never refuses a plugin over it, so what it drops (a value
- * that is not a boolean, true beside catalogOnly or browser) is a warning here, in the words the app logs. [raw] is the
- * manifest as written, [m] as validateManifest read it. A true that stands gets [resolveAheadNote] instead.
- */
-export function resolveAheadWarnings(raw, m) {
-  const { dropped } = resolveAheadOf(raw?.resolveAhead, m.catalogOnly === true, m.browser === true);
-  return dropped ? [`resolveAhead: ${dropped}`] : [];
-}
-
-/** What `"resolveAhead": true` means for the author: when Kino calls resolve ahead, what it keeps, and what an older Kino does. */
-export function resolveAheadNote() {
-  const R = contract.manifest.resolveAhead;
-  return `resolveAhead: Kino ${contract.additiveFromApp["manifest.resolveAhead"]} or later may call resolve for a movie or an episode before the person presses play (after about 0.3 s on its title page), as a background call whose stream is checked as the player's own, and plays that answer if they press play within ${R.maxKeepMs / 60000} minutes, or until ${R.expiryMarginMs / 1000} s before its expiresInSeconds runs out when that comes first. resolve may thus run for titles nobody plays: it must not count a play, spend a quota or a trial, or open a page (if it does, leave the field out and export ${contract.prepare.export} to get ready instead). An older Kino ignores the field`;
 }
 
 /** The tracking consent line for [hosts], as the app's Tracking.consentLine builds it (`.invalid` placeholders left out). */
@@ -188,33 +122,6 @@ export const UI_FUNCTIONS = ["section", "categories", "settingsStatus", "action"
  * never make (no "section" in the manifest, categories without apiVersion 6 and browse, an action key no `action`
  * setting has, a function not exported) is a problem.
  */
-/**
- * `--run playerSlot [ref]` and `--run playerSlotAction <ref> <id>`: the slot's two exports called with the app's context (the
- * title's own plugin's, a full one with `live: false`) and their answers read as the app reads them: `{ problems, drops, notes,
- * output }`. A call Kino would never make (no `slot` block, an action id that is not a declared button) is a problem.
- */
-export async function runSlot(plugin, run, args, m) {
-  const problems = [], drops = [], notes = [];
-  const out = (o) => ({ problems, drops, notes, output: o });
-  const P = contract.playerSlot;
-  if (!m.slot || !(m.apiVersion >= P.apiVersion || m.enhancementsApplied.some((k) => k >= P.apiVersion))) { problems.push(`the manifest does not declare "slot" (apiVersion ${P.apiVersion}, with the "${P.capability}" capability): Kino draws nothing for this plugin`); return out(null); }
-  if (typeof plugin[run] !== "function") { problems.push(`the plugin doesn't export ${run}()`); return out(null); }
-  const context = slotContext(args[0] || "demo");
-  if (run === P.exports.slot) {
-    const answer = await plugin.playerSlot(context);
-    const r = parseSlotFrame(answer, m.slot.elements);
-    if (!r.frame) { problems.push(`${run}: not an object with an "items" list: Kino keeps the last frame (none, the first time)`); return out(null); }
-    drops.push(...r.dropped);
-    return out(r.frame);
-  }
-  const id = args[1];
-  const button = m.slot.elements.find((e) => e.id === id && e.kind === "button");
-  if (!button) { problems.push(`${run} needs the id of a declared button (${m.slot.elements.filter((e) => e.kind === "button").map((e) => e.id).join(", ") || "this manifest declares none"})`); return out(null); }
-  const answer = await plugin.playerSlotAction({ id, context });
-  const request = slotActionRequest(answer, { contributed: false, control: (m.capabilities || []).includes(contract.kinoPlayerControl.capability) }, (l) => drops.push(l));
-  return out(request ?? null);
-}
-
 /**
  * `--run panel <ref> [tab]`: `panel(context)` called with the app's context (an apiVersion 14 plugin's carries `state` and
  * `size` too) and its result read as the app reads it, in whichever format it comes: `{ problems, drops, notes, output }`. A
@@ -450,7 +357,7 @@ export function sharedSecretKeyWarnings(source) {
 export function undeclaredLibraryProblem(m, source) {
   const L = contract.kinoLibrary;
   if ((m.capabilities || []).includes(L.capability)) return null;
-  if (!/\bkino\s*\.\s*library\s*\.\s*(watched|saved|stats)\s*\(/.test(source)) return null;
+  if (!/\bkino\s*\.\s*library\s*\.\s*(watched|saved)\s*\(/.test(source)) return null;
   return `The code calls kino.library but the manifest does not declare the "${L.capability}" capability (apiVersion ${L.apiVersion}): Kino would refuse every call with permission_denied`;
 }
 
@@ -502,31 +409,16 @@ export async function validate(dirArg, { run = null, args = [], config = {}, rep
   // "debug": true only turns every person's "Modo debug" switch on by default (Kino 0.9.50): the author is told what that means.
   if (m.debug) notes.push(contract.manifest.debug.defaultOnNote);
   if (m.theme && Object.keys(m.theme).length) for (const w of resolvePalette(m.theme).warnings) notes.push(w);
-  // appThemes: what each theme drops on a phone and on a TV, so the author sees it before publishing.
-  for (const t of m.appThemes ?? []) {
-    for (const [form, tv] of [["phone", false], ["tv", true]]) {
-      for (const w of resolveAppTheme(t, { tv }).warnings) notes.push(`appThemes ${t.id} (${form}): ${w}`);
-    }
-  }
   // Accepted from Kino 0.9.45 on; older apps still refuse the install, so the author is told. They
   // counted the raw entries (duplicates too), so this does as well.
   const legacy = contract.manifest.legacyMaxHosts;
   if (JSON.parse(manifestText).hosts.length > legacy.value) {
     notes.push(`Más de ${legacy.value} hosts: Kino ${legacy.refusedUpToApp} o anterior rechaza este plugin; necesita Kino ${legacy.noLimitFromApp} o superior`);
   }
-  // A placeholder host (example.com, *.test...) is accepted by Kino but is never where a plugin really loads from: said loudly.
-  const rawManifest = JSON.parse(manifestText);
-  warnings.push(...placeholderHostWarnings(rawManifest.hosts, rawManifest));
-  // "resolveAhead": a drop is said loudly (the app only logs it); a true that stands is explained.
-  warnings.push(...resolveAheadWarnings(rawManifest, m));
-  if (m.resolveAhead) notes.push(resolveAheadNote());
   if (m.browser) {
     notes.push(m.browserPages
       ? "kino.browser.capture and kino.browser.page only work in the app (a hidden WebView); here they answer browser_unavailable, so test on a device. Kino never solves captchas: a page that asks to confirm a human is there answers blocked"
       : "kino.browser.capture only works in the app (a hidden WebView); here it answers browser_unavailable, so test resolve on a device. To read pages with kino.browser.page declare \"browser\": \"pages\"");
-  }
-  if (m.visualBrowser) {
-    notes.push("kino.visualBrowser.open needs a window the person drives, which the Node kit does not have: it answers unavailable unless a test passes createKino a `visualBrowser` option (the person). Test the real window on a phone or a TV (experimental there); `kino.visualBrowser.available` is false on a device without a WebView, so keep another way (pasting the cookies into a password setting)");
   }
   // Kino 0.9.55's English texts (labelEn, hintEn, confirmEn, section.labelEn): only said once the plugin uses them.
   const en = englishCoverage(m);
@@ -590,12 +482,6 @@ export async function validate(dirArg, { run = null, args = [], config = {}, rep
     }
   }
   const consent = consentLines(m, { authorFingerprint });
-  // apiVersion 20, the plugin protocol: what the app would refuse or drop in provides / consumes, and what each side must do.
-  const protocol = protocolBlocks(JSON.parse(manifestText));
-  for (const why of protocol.problems) problems.push(`kino-plugin.json: ${why}`);
-  warnings.push(...protocolWarnings(JSON.parse(manifestText)));
-  if (protocol.provides.length) notes.push(`provides: this plugin opens ${protocol.provides.map((d) => `"${d.name}" (${[...Object.keys(d.calls), ...Object.keys(d.streams)].map((n) => `proto_${d.name}_${n}`).join(", ") || "no calls"})`).join(", ")}: each call or stream is an export of that name; Kino validates its argument against "in" and its answer against "out"`);
-  if (protocol.consumes.length) notes.push(`consumes: kino.plugins.call(${protocol.consumes.map((u) => `"${u.alias}"`).join(" | ")}, call, arg) asks ${protocol.consumes.map((u) => u.repo).join(", ")} through Kino; it rejects with an error whose code is ${contract.protocol.errorCodes.join(", ")}: handle provider_missing (the person may not have installed it; see recommends and go.installPlugin). Try it: node sdk/run.mjs --provider <provider folder> <this folder> screenEvent <name>`);
   // apiVersion 9's player panel button and settings layout: below it Kino ignores both fields, so the author is told.
   const layoutDrops = [];
   const declared = JSON.parse(manifestText);
@@ -607,13 +493,6 @@ export async function validate(dirArg, { run = null, args = [], config = {}, rep
     // Task 8j: what the capability changes, so the author does not count on it (the person may refuse or revoke it).
     const P = contract.kinoPlayerControl;
     notes.push(`playerControl: your player actions also count from a panel result's own player (refreshMs) and from playerEvent, and a contributed tab may also ${P.contributedWithControl.filter((f) => f !== "seekToMs").join(" and ")}; Kino announces each one the person did not cause, drops it under a Kino dialog or while they seek, keeps only pause on live, and allows ${P.perMinute} a minute. The person may refuse it or switch it off: work without it. Try it: KINO_PLAYER_CONTROL_REVOKED=1 node sdk/run.mjs <this folder> panel <ref>`);
-  }
-  if ((m.capabilities || []).includes(contract.playerSlot.capability) && m.slot) {
-    // apiVersion 23: what the slot is and is not, so the author does not count on more.
-    const P = contract.playerSlot;
-    const fixed = m.slot.elements.filter((e) => e.mode === "fixed").map((e) => e.id);
-    notes.push(`playerSlot: up to ${P.maxElements} elements over the video on a TV (never on a phone), shared with every other plugin (fixed first); ${P.exports.slot}(context) is called when the player opens (retried ${P.firstFrameRetries} times, ${P.firstFrameRetryMs / 1000} s apart, if it fails before the first answer) and again after each answer's refreshMs (${P.refreshMsFloor} to ${P.refreshMsCeiling} ms; no refreshMs, no refresh), never counting toward "No responde"; a press calls ${P.exports.action}({ id, context }) and does. A title Kino cannot share (18+, owned by no plugin) gets a bare context (live, foreign, device, lang, features: no kind, ref or title): read context.live. ${fixed.length ? `"${fixed.join('", "')}" ${fixed.length > 1 ? "are" : "is"} fixed: the person approves it with a red line, an update that adds one asks again, and they can switch the plugin off in Ajustes. ` : ""}On a live channel the elements marked overlay show only with the channel card and are reached with the Menu key, a press can only pause there, and only with the approved playerControl (a slot-only plugin cannot declare it); ${P.liveDropped.join(", ")} are dropped. Try it: node sdk/run.mjs <this folder> ${P.exports.slot} <ref> and node sdk/run.mjs <this folder> ${P.exports.action} <ref> <button id>`);
-    if (m.apiVersion < P.apiVersion) notes.push(`playerSlot needs apiVersion ${P.apiVersion}`);
   }
   if ((m.capabilities || []).includes(contract.kinoRoom.capability)) {
     // Task 8l: what a room is and is not, so the author builds failover and polling into the plugin.
@@ -633,10 +512,6 @@ export async function validate(dirArg, { run = null, args = [], config = {}, rep
   if ((m.jobs || []).some((j) => j.runOn === "preferPhone")) {
     notes.push(`runOn "preferPhone": ONE of the person's linked devices runs ${(m.jobs || []).filter((j) => j.runOn === "preferPhone").map((j) => j.id).join(", ")}, a linked phone first; the TV runs it only when no phone can (none linked, or quiet for ${contract.kinoJobs.election.freshPeriods} periods). Write the result with kino.shared so the TV reads it${(m.capabilities || []).includes(contract.kinoShared.capability) ? "" : ' (declare the "shared" capability)'}, and read kino.device in the job to do less on a TV`);
   }
-  if ((m.jobs || []).some((j) => j.perProfile)) {
-    const J = contract.kinoJobs;
-    notes.push(`perProfile: Kino runs ${(m.jobs || []).filter((j) => j.perProfile).map((j) => j.id).join(", ")} once for each profile of the device with the plugin on, one at a time, oldest result first; ctx never says which: kino.library, kino.shared, kino.storage, kino.config and the cookies are that profile's, and ${J.perProfileRefusedApis.join(", ")} answer not_allowed for a profile that is not in use, so catch it`);
-  }
   if ((m.capabilities || []).includes(contract.kinoAi.capability)) {
     // Task 8r: what the AI is and is not, so the author treats the reply as untrusted data and keeps a fallback.
     const A = contract.kinoAi;
@@ -645,7 +520,7 @@ export async function validate(dirArg, { run = null, args = [], config = {}, rep
   if ((m.capabilities || []).includes(contract.kinoIdentity.capability)) {
     // apiVersion 15: what the identity is and is not, so the author's server verifies the token and never trusts the id alone.
     const I = contract.kinoIdentity;
-    notes.push(`identity: kino.identity.telegram({ challenge? }) answers { id, token } (id: a pseudonym of the person for THIS plugin, the same on every install, never their Telegram id or username) and, with a challenge, deviceKey and signature (a per-plugin device key); only inside ${I.fromFunctions.join(", ")} the person started, ${I.perMinute} a minute. token only when the plugin is signed with one of ${I.tokenAuthors.join(", ")} (any other author gets the id and the attestation, never the token). Your server must verify the token (it is signed by Kino's bot and names the Telegram account) and the signature; the person may refuse it or switch it off: keep a way in without it. The kit answers a fake account, with the token whatever the author (like a debug build of Kino): KINO_IDENTITY_TG=<id or none>, KINO_IDENTITY_TOKEN=..., KINO_IDENTITY_REVOKED=1`);
+    notes.push(`identity: kino.identity.telegram({ challenge? }) answers { id, token } (id: a pseudonym of the person for THIS plugin, the same on every install, never their Telegram id or username) and, with a challenge, deviceKey and signature (a per-plugin device key); only inside ${I.fromFunctions.join(", ")} the person started, ${I.perMinute} a minute. Your server must verify the token (it is signed by Kino's bot and names the Telegram account) and the signature; the person may refuse it or switch it off: keep a way in without it. The kit answers a fake account: KINO_IDENTITY_TG=<id or none>, KINO_IDENTITY_TOKEN=..., KINO_IDENTITY_REVOKED=1`);
   }
   if (m.panel?.contributes && (m.panel.kinds ?? []).includes(contract.kinoLivePanel.kind)) {
     // Task 11: the tab also joins En vivo channels, after Kino's General tab, with the live context.
@@ -677,10 +552,6 @@ export async function validate(dirArg, { run = null, args = [], config = {}, rep
   const screenApi = contract.manifest.screen.apiVersion;
   if (m.apiVersion < screenApi && declared.screen !== undefined) {
     notes.push(`"screen" needs apiVersion ${screenApi} (Kino ${contract.apiVersionFromApp[String(screenApi)]}): at apiVersion ${m.apiVersion} Kino ignores it. To offer it to newer Kinos without cutting older ones off, put it in "enhancements": { "${screenApi}": { "capabilities": ["screen"], "screen": { … } } }`);
-  }
-  const slotApi = contract.playerSlot.apiVersion;
-  if (m.apiVersion < slotApi && declared.slot !== undefined) {
-    notes.push(`"slot" needs apiVersion ${slotApi} (Kino ${contract.apiVersionFromApp[String(slotApi)]}): at apiVersion ${m.apiVersion} Kino ignores it. To offer it to newer Kinos without cutting older ones off, put it in "enhancements": { "${slotApi}": { "capabilities": ["playerSlot"], "slot": { … } } }`);
   }
   // The screen as written: the newest enhancement that carries one, else the manifest's own.
   const declaredScreen = [...m.enhancementsApplied].reverse().map((k) => declared.enhancements?.[String(k)]?.screen).find((s) => s !== undefined) ?? declared.screen;
@@ -739,19 +610,10 @@ export async function validate(dirArg, { run = null, args = [], config = {}, rep
     const loaded = await loadPlugin(entry, pluginKino);
     if (!loaded.sandboxed) notes.push("running without the sandbox (KINO_SDK_NO_SANDBOX=1): the plugin can see Node's globals that Kino lacks");
     const plugin = loaded.plugin;
-    // The optional prepare (contract.prepare): where Kino never calls it is said loudly; where it does, what it means.
-    const preparing = typeof plugin[contract.prepare.export] === "function";
-    const prepareWarned = prepareWarnings(preparing, m);
-    warnings.push(...prepareWarned);
-    if (preparing && !prepareWarned.length) notes.push(prepareNote());
     // download/drm export nothing; channels exports liveCategories + liveChannels (guide optional).
     // Only the plugin's OWN manifest refuses the install (an enhancement's missing exports drop that block, as the app does: the
     // block's exports are checked below, against what the entry really exports).
     const own = validateManifestWithoutEnhancements(manifestText).manifest;
-    for (const d of protocol.provides) for (const n of [...Object.keys(d.calls), ...Object.keys(d.streams)]) {
-      // The app installs it, but every consumer's call to that name answers provider_failed: the door is broken, so the kit fails it.
-      if (typeof plugin[`proto_${d.name}_${n}`] !== "function") problems.push(`provides "${d.name}": the plugin does not export proto_${d.name}_${n}() (the name is case-sensitive): Kino installs it, but every consumer's ${n in d.calls ? "call" : "poll"} of "${n}" answers provider_failed`);
-    }
     const missing = requiredExports(own.capabilities, own.settings, own).filter((f) => typeof plugin[f] !== "function");
     if (missing.length) problems.push(`the plugin doesn't export ${missing.join(", ")}: Kino refuses the install ("le falta ${missing.sort().join(", ")}")`);
     else {
@@ -765,13 +627,7 @@ export async function validate(dirArg, { run = null, args = [], config = {}, rep
     }
     // The player panel (`--run panel <ref> [tab]`): either format, read as the app reads it (Task 8i: a screen-format result's
     // tree with the panel's limits, any other result as the legacy panel).
-    if ((run === contract.playerSlot.exports.slot || run === contract.playerSlot.exports.action) && !problems.length) {
-      const r = await runSlot(plugin, run, args, m);
-      problems.push(...r.problems);
-      drops.push(...r.drops);
-      notes.push(...r.notes);
-      output = r.output;
-    } else if (run === "panel" && !problems.length) {
+    if (run === "panel" && !problems.length) {
       const r = await runPanel(plugin, args, m, servers);
       problems.push(...r.problems);
       drops.push(...r.drops);
@@ -809,28 +665,6 @@ export async function validate(dirArg, { run = null, args = [], config = {}, rep
         }
         const noSign = run === "resolve" ? signExportProblem(output, plugin) : null;
         if (noSign) problems.push(noSign);
-        // A DRM list (apiVersion 24): Kino tries the options in order and plays the first the device supports.
-        if (run === "resolve" && Array.isArray(output.drmOptions)) {
-          const host = (u) => { try { return new URL(u).hostname; } catch { return "?"; } };
-          const line = (d, i) => `${i + 1}. ${d.type === "clearkey" ? `clearkey (${Object.keys(d.keys).length} key${Object.keys(d.keys).length === 1 ? "" : "s"}, no license server)` : `widevine (license: ${host(d.licenseUrl)})`}`;
-          notes.push(`drm options, in the order a phone tries them: ${output.drmOptions.map(line).join("; ")}`);
-        }
-        // clockLive (apiVersion 27, live only): Kino synthesizes the HLS window itself from the descriptor. Catch the
-        // mistakes the app would reject (missing {seg}, {mc} with no mediaCode, an empty grid, no anchor) here, early.
-        if (run === "resolve" && output.clockLive && typeof output.clockLive === "object") {
-          const cl = output.clockLive;
-          if (typeof cl.template !== "string" || !cl.template.includes("{seg}")) {
-            problems.push('clockLive.template must be a string containing the "{seg}" token (the per-segment media clock)');
-          } else if (cl.template.includes("{mc}") && !cl.mediaCode) {
-            problems.push('clockLive.template uses "{mc}" but no mediaCode was given');
-          } else if (!Array.isArray(cl.grid) || cl.grid.length === 0) {
-            problems.push("clockLive.grid must be a non-empty array of per-segment durations in ms (e.g. [4004, 6006])");
-          } else if (!cl.anchor || typeof cl.anchor !== "object" || typeof cl.anchor.t !== "number" || typeof cl.anchor.s !== "number") {
-            problems.push("clockLive.anchor must be { t, s } pinning one real segment (t = epoch ms, s = its media-clock ms)");
-          } else {
-            notes.push(`clockLive: Kino synthesizes a live HLS window itself (grid ${cl.grid.join("/")} ms, rate ${cl.rate ?? 1000}); every viewer pulls the segments straight from the CDN`);
-          }
-        }
         // A search hit is 18+ by its own marks and the plugin's categories (as in the app): unmarked ones get a warning.
         if (run === "liveSearch") {
           const marked = await markLiveSearch(plugin, output, m, servers);
@@ -875,7 +709,7 @@ export async function validate(dirArg, { run = null, args = [], config = {}, rep
   return { ok: problems.length === 0, problems, drops, output, consent, notes, warnings };
 }
 
-if (process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url))) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   // --repo is validate's own (run.mjs's parser doesn't know it): taken out before the rest is read.
   const argv = process.argv.slice(2);
   const repoAt = argv.indexOf("--repo");
@@ -904,7 +738,7 @@ if (process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(f
     result.problems.forEach((p) => console.error(`✗ ${p}`));
     (result.warnings || []).forEach((w) => console.error(`! ${w}`));
     result.notes.forEach((n) => console.error(`· ${n}`));
-    if (result.ok) console.error("✓ Kino would accept this plugin" + (result.drops.length ? ` (${result.drops.length} entries dropped, see above)` : "") + (result.warnings.length ? ` (${result.warnings.length} warning${result.warnings.length === 1 ? "" : "s"} above: the install works, but read each one: it is something Kino does differently from what the plugin expects)` : ""));
+    if (result.ok) console.error("✓ Kino would accept this plugin" + (result.drops.length ? ` (${result.drops.length} entries dropped, see above)` : "") + (result.warnings.length ? ` (${result.warnings.length} warning${result.warnings.length === 1 ? "" : "s"} above: the install works, the call fails where the plugin uses a global Kino lacks)` : ""));
     process.exitCode = result.ok ? 0 : 1;
   }
 }

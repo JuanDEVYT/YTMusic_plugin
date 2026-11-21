@@ -1,4 +1,4 @@
-// TypeScript declarations for Kino plugins (apiVersion 1 to 27; 27 adds the clockLive stream field (KinoStream.clockLive: a clock-enumerated sliding-window live HLS feed Kino synthesizes itself on its local proxy, for live from an open CDN whose segment URLs are enumerable by a media clock; capability-free, live only); 26 adds to appThemes the painted surfaces, gloss, layout, assets, background image and font; 25 lets a stream's `subtitles` entry carry its own decrypted `text` (with `format`) instead of a `url` (Kino 0.9.86, provisional); 24 lets a stream's `drm` be a list of options and adds the `clearkey` type (Kino 0.9.85, provisional); 23 adds the playerSlot capability (up to three small elements in the top-right corner of the TV player: the playerSlot and playerSlotAction exports and the manifest's slot block); 22 adds the progress capability (kino.progress: how far along the person is in something that is not a video, kept by Kino and read back with `kino.progress.list`; Kino draws nothing from it, the plugin builds its own shelf); 21 adds the files capability (kino.files: files on the person's device, picked by the person, read by ranges and played through a kino-file: address); 20 adds the visualBrowser manifest key (kino.visualBrowser.open: a web window the person sees and drives, on the plugin's own hosts, to sign in or finish a step) and the plugin protocol (the manifest's provides and consumes blocks and kino.plugins.call: one plugin uses the doors another opens, through Kino); 19 adds the lyrics capability (the lyrics(query) export: a song's time-synced or plain lyrics for the music player's overlay); 18 adds the app themes (go.useTheme, go.setExperience, appThemes with price, experience and logo); 17 adds the stats operation of the library capability (kino.library.stats, a month's totals and top titles); 16 adds the coins capability (kino.coins: the person's Kino coins balance, and giving one coin for a post); 15 adds the identity capability (kino.identity.telegram: a per-plugin pseudonym of the person and the signed token that proves it), the notifications capability (kino.notifications: notices in the Home bell), library episodes (the latest season and episode of a watched series) and the pluginStore capability (the plugin is a source of plugins for Kino's store: storeSync, and storeList and storeSearch for a live store); 14 adds the screen capability (screen, screenEvent and the manifest's screen block: a full-screen canvas the plugin builds), library, playerPanelTab, playerControl, room (kino.room, a mailbox hosted on the person's device over the Internet), schedule (background jobs: the manifest's jobs and the job export) and the manifest's enhancements; 13 adds the socket capability (kino.ws, outbound WebSockets) and the byteSource capability (a stream whose bytes the plugin serves through its read export) and the storageLarge capability (a 16 MiB kino.storage for a plugin that keeps a catalog) and the catalog capability (kino.catalog, a searchable SQLite catalog of up to 100,000 items per plugin in a 64 MiB file) and the qrScan capability (kino.qr.scan, the phone's camera scanner for a QR code) and the settings form's qr setting (a QR whose text settingsStatus gives, refreshed every refreshMs) and the kino.crypto operations aesIge, modPow, gunzip, convert and aesIgeVerify and the imageSource capability (a poster, backdrop, still or hero image the plugin serves through its image export, KinoImageRef); 12 adds the syncProvider capability (syncPull, syncPush, syncStatus and the manifest's sync block); 11 adds the externalResolve capability (a stream's `external` hand-off to a resolver app, the manifest's externalResolver) and, from Kino 0.9.66, a stream's advisory `media` and its `portable` universal copy; 10 adds the playlists capability; 9 adds the player panel (panel, panelAction, playerEvent, the manifest's panel and settingsLayout), fetchHosts "any" for hand-written plugins, English setting texts and kino.meta by title; 8 adds the audio item kinds music and podcast; 7 adds tracking and segments; apiVersion 5 only adds the manifest's signature, 6 the plain-plugin SDK: typed and larger secrets, migrate, signed streams, the settings form, debug, telemetry, section, categories, theme and scopedSearch). Reference them from plugin.js
+// TypeScript declarations for Kino plugins (apiVersion 1 to 14; 14 adds the screen capability (screen, screenEvent and the manifest's screen block: a full-screen canvas the plugin builds), library, playerPanelTab, playerControl, room (kino.room, a mailbox hosted on the person's device over the Internet), schedule (background jobs: the manifest's jobs and the job export) and the manifest's enhancements; 13 adds the socket capability (kino.ws, outbound WebSockets) and the byteSource capability (a stream whose bytes the plugin serves through its read export) and the storageLarge capability (a 16 MiB kino.storage for a plugin that keeps a catalog) and the catalog capability (kino.catalog, a searchable SQLite catalog of up to 100,000 items per plugin in a 64 MiB file) and the qrScan capability (kino.qr.scan, the phone's camera scanner for a QR code) and the settings form's qr setting (a QR whose text settingsStatus gives, refreshed every refreshMs) and the kino.crypto operations aesIge, modPow, gunzip, convert and aesIgeVerify and the imageSource capability (a poster, backdrop, still or hero image the plugin serves through its image export, KinoImageRef); 12 adds the syncProvider capability (syncPull, syncPush, syncStatus and the manifest's sync block); 11 adds the externalResolve capability (a stream's `external` hand-off to a resolver app, the manifest's externalResolver) and, from Kino 0.9.66, a stream's advisory `media` and its `portable` universal copy; 10 adds the playlists capability; 9 adds the player panel (panel, panelAction, playerEvent, the manifest's panel and settingsLayout), fetchHosts "any" for hand-written plugins, English setting texts and kino.meta by title; 8 adds the audio item kinds music and podcast; 7 adds tracking and segments; apiVersion 5 only adds the manifest's signature, 6 the plain-plugin SDK: typed and larger secrets, migrate, signed streams, the settings form, debug, telemetry, section, categories, theme and scopedSearch). Reference them from plugin.js
 // with `/// <reference path="./kino.d.ts" />` for editor help; Kino itself runs plain JavaScript.
 // The numbers in the comments come from contract.json, which is authoritative. The app checks that
 // every `kino` member declared here exists in its runtime and nothing else does (KinoDtsTest).
@@ -72,12 +72,7 @@ interface KinoItem {
   rating?: number;
   /** 1..1000; ignored on a `live` item. */
   runtimeMinutes?: number;
-  /**
-   * `tmdb` and `imdb` name the title for Kino's metadata. On a `music` or `podcast` item (apiVersion 19) `isrc`, `musicbrainz` and
-   * `youtube` are the ids a lyrics plugin may match the song by: each a text of 1 to 64 characters (others are skipped). Kino keeps them with
-   * the artist on the device and sends them in the `ids` of the `lyrics` query while that item plays.
-   */
-  ids?: { tmdb?: number; /** ^tt\d{5,10}$ */ imdb?: string; isrc?: string; musicbrainz?: string; youtube?: string };
+  ids?: { tmdb?: number; /** ^tt\d{5,10}$ */ imdb?: string };
   lang?: string;
   quality?: string;
   /** At most 3, each at most 20 characters; shown as chips. */
@@ -182,15 +177,6 @@ interface KinoEpisodes {
   seasons?: KinoSeason[];
 }
 
-/**
- * One DRM option of a stream's `drm`. Widevine fetches its license from `licenseUrl` (apiVersion 2).
- * ClearKey (apiVersion 24) has no license server: `keys` maps a key id to its key, each exactly 32 hex
- * digits (a key id may be a dashed UUID), at most 8 pairs; a pair that is not valid is dropped.
- */
-type KinoDrm =
-  | { type: "widevine"; licenseUrl: string; licenseHeaders?: Record<string, string> }
-  | { type: "clearkey"; keys: Record<string, string> };
-
 interface KinoStream {
   /**
    * https on a declared host (http only on one declared `insecureHttp`), or the person's own server exactly as typed.
@@ -204,12 +190,7 @@ interface KinoStream {
    * `download` capability, with the request that saves it to the device). At most 20.
    */
   headers?: Record<string, string>;
-  /**
-   * Side subtitle tracks, at most 30. Each is a `url` (checked like the video's) or, apiVersion 25, your own decrypted `text`
-   * with a `format` of "vtt" or "srt" and no `url`: at most 2,000,000 bytes (UTF-8); with no `format`, or over the limit, the
-   * entry is dropped. An entry with both keeps only the `text`.
-   */
-  subtitles?: KinoStreamSubtitle[];
+  subtitles?: { lang: string; url: string; format?: "vtt" | "srt" }[];
   /**
    * Separately-hosted audio tracks (a dub, an alternate mix), at most 8: Kino plays your video with
    * each merged in as its own track, offered and auto-picked by the person's audio-language
@@ -233,15 +214,8 @@ interface KinoStream {
    * Kino negotiates Widevine at security level L3 (software), and only when the device confirms L3:
    * the license server must allow it. `audioTracks` next to `drm` are played clear (no license for
    * them): plain, unencrypted files only.
-   *
-   * apiVersion 24: `drm` may also be a list of options, best first (at most 4; a wrong entry is dropped,
-   * a list with none usable refuses the stream), and a block may be ClearKey (no license server). Kino
-   * uses the first option the device supports. On a phone that really has Widevine L1 (never a TV, never
-   * a live channel), and only when the license is refused because it demands output protection L3 cannot
-   * give, Kino plays the title again at L1 on a surface without zoom or forced ratio; the plugin does
-   * nothing. Any other DRM failure moves to the next option.
    */
-  drm?: KinoDrm | KinoDrm[];
+  drm?: { type: "widevine"; licenseUrl: string; licenseHeaders?: Record<string, string> };
   /**
    * apiVersion 6: `"request"` makes Kino sign every playlist and segment request of this stream with your
    * `sign()` export, right before sending it, through a local proxy. HLS only (an HLS `mime` or a `.m3u8`
@@ -324,94 +298,6 @@ interface KinoStream {
    * stream is likely not playable as it is. See the External Source Resolver guide.
    */
   portable?: { url: string; mime?: "application/x-mpegURL" | "application/vnd.apple.mpegurl" };
-  /**
-   * apiVersion 27, `live` streams only, capability-free: a sliding-window live HLS feed whose MPEG-TS/fMP4 segment URLs
-   * are enumerable from a media clock, so Kino SYNTHESIZES the `.m3u8` itself on its own local proxy and recomputes the
-   * window on every player playlist-refresh -- WITHOUT any plugin call while it plays and without ever fetching a
-   * playlist from the CDN. Every specific (CDN template, channel code, duration lattice, clock, anchor, window) is
-   * plugin-supplied data, so ANY plugin uses it with ITS own CDN; nothing is hardcoded. The player then downloads the
-   * segments the synthesized playlist lists straight from the CDN (each viewer from its own IP).
-   *
-   * When `clockLive` is present `url` is IGNORED (as with `external`), and so are `alternatives`, `audioTracks`,
-   * `durationMs`, `skip` and `expiresInSeconds` (a clock window has no single URL, fixed length or expiry); a `drm`,
-   * `signing` or `external` beside it refuses the stream. Valid ONLY on a `live` stream (resolve() of a `live` item, or an
-   * inline liveChannels[].stream); on any other stream Kino ignores the field, so an empty `url` is refused. `headers` and
-   * `subtitles` still apply to every synthesized request. Each concrete segment URL (after substitution) is checked exactly
-   * like `url` against the plugin's live host grant (`liveStreamHosts: "any"` -- which needs `channels` -- or
-   * `streamHosts: "any"`, or a declared host; never the LAN). Kino reads the field only when the plugin's FEATURE
-   * apiVersion is 27 or more (`kino.pluginApiVersion`): a plugin that keeps a lower base adds `"enhancements": { "27": {} }`.
-   * An older Kino ignores `clockLive` and, finding `url` empty, refuses the stream: send a real `url` beside it, or send
-   * `clockLive` only when `kino.pluginApiVersion >= 27`.
-   */
-  clockLive?: KinoClockLive;
-}
-
-/**
- * apiVersion 27: the parameters Kino needs to synthesize a clock-enumerated live HLS playlist (see `KinoStream.clockLive`).
- * Kino computes, for wall-clock `now`: `D(k) = Σ_{i<k} grid[(firstStep+i) mod grid.length]` (the media-ms from the anchor
- * segment to the k-th one after it; `k<0` walks the lattice backward); that segment's number (its `{seg}`) is
- * `anchor.s + D(k)` and it begins at wall time `anchor.t + D(k)·(1000/rate)`; the live segment is the last one begun by
- * `now`; the emitted window is the `count` segments ending `behind` segments before it, each line
- * `#EXTINF:grid[phase]/1000`, `#EXT-X-MEDIA-SEQUENCE` a monotonic per-segment ordinal, `#EXT-X-TARGETDURATION =
- * ceil(max(grid)/1000)`, no `#EXT-X-ENDLIST`. Kino replaces the predicted edge with the one it probes (`reanchor`).
- * Parts that could mislocate the window or fetch an unintended URL REFUSE the stream (bad `grid`, `template` without `{seg}`,
- * an unknown placeholder, a bad `anchor`, a host-rule failure); tuning knobs (`rate`, `reanchor`, `window`, `segWidth`,
- * `firstStep`) are clamped or defaulted silently, never refusing.
- */
-interface KinoClockLive {
-  /**
-   * The segment-URL template. `{seg}` (the integer segment number: its start on the media clock, in ms, so consecutive
-   * segments differ by their `grid` step) is REQUIRED and may repeat; `{mc}` (the `mediaCode`) is optional and may
-   * repeat. e.g. `"https://cdn.example.com/live/{mc}/{mc}_{seg}.ts"`. At most 2048 characters. No `{seg}`,
-   * or any other `{…}` placeholder, REFUSES the stream (a typo must never be fetched literally).
-   */
-  template: string;
-  /**
-   * Substituted for every `{mc}`. Required when the template uses `{mc}`, ignored otherwise. Pattern
-   * `^[A-Za-z0-9._~-]{1,128}$` (the live-channel code shape: a safe token, never a slash, path segment or host, so it
-   * cannot inject a new host or traverse the path).
-   */
-  mediaCode?: string;
-  /**
-   * The repeating lattice of per-segment durations in ms, e.g. `[4004, 6006]`: a segment at lattice-phase `p` lasts
-   * `grid[p]` ms and the phase advances `p → (p+1) mod grid.length` each segment. 1 to 16 entries, each a finite integer
-   * in 200..60000, with a positive sum. A missing, empty or bad grid REFUSES the stream (the `#EXTINF` durations and the
-   * valid segment numbers would be unknowable).
-   */
-  grid: number[];
-  /**
-   * Media-clock speed: ms of media advanced per 1000 ms of wall clock. Default 1000 (realtime); clamped to 500..2000.
-   * Lets the window track real time when `Σ grid` is not an exact multiple of a second (e.g. the NTSC 1001/1000 drift that
-   * makes `[4004, 6006]` sum to 10010). A value that is not a whole number reads as the default.
-   */
-  rate?: number;
-  /**
-   * Pins the clock to the segment lattice: at wall-clock epoch `t` (ms, UTC) the segment numbered `s` begins, sitting at
-   * lattice-phase `firstStep` (0-based index into `grid`, default 0). `t` and `s` are REQUIRED; a missing or bad anchor
-   * REFUSES the stream (the live edge cannot be located). `firstStep` out of range reads as 0.
-   */
-  anchor: { t: number; s: number; firstStep?: number };
-  /**
-   * Robustness: instead of trusting the clock blindly, Kino pins the live edge on real segment URLs before the channel
-   * plays (no segment answering: the channel is not available) and again every `everySec` seconds, to absorb device↔CDN
-   * clock skew and keep latency honest. Each search starts at the predicted edge (two probes when the clock is right) and
-   * may reach `4 × probeSpan` segments each way, never fewer than 16. Without the object Kino uses the defaults. Both are
-   * clamped, never refusing: `everySec` 60..21600 (default 1200, every 20 minutes), `probeSpan` 0..12 (default 4; any
-   * value up to 4 reaches ±16 segments).
-   */
-  reanchor?: { everySec?: number; probeSpan?: number };
-  /**
-   * The sliding window Kino emits: `count` segments ending `behind` segments before the computed live edge (a latency
-   * cushion against half-written newest segments). `count` default 6 (clamped 2..20), `behind` default 3 (clamped 0..20),
-   * never refusing. Kino may list more than `count` (at most 20) so the player can start safely behind the edge, and
-   * while a probe confirmed the edge in the last 25 minutes the window ends at most 1 segment before it.
-   */
-  window?: { count?: number; behind?: number };
-  /**
-   * Optional zero-pad width for `{seg}` (0..12, default 0 = no padding) so `{seg}` renders e.g. `"000042"` when the CDN
-   * names segments with fixed-width indices. A value out of range is clamped; one that is not a whole number reads as 0.
-   */
-  segWidth?: number;
 }
 
 /**
@@ -961,123 +847,13 @@ interface KinoManifestScreen {
 }
 
 /**
- * The manifest's `slot` block (apiVersion 23, contract.json `playerSlot`): the elements the `playerSlot` capability draws in the
- * top-right corner of the TV player (never on a phone). It and the capability need each other. 1 to 3 elements; at most 3 are on
- * screen in all, across every plugin (`fixed` first, then the `overlay` ones, in the person's plugin order). The count, kinds and
- * modes are fixed here: `playerSlot` answers may change content only. A plugin with a `fixed` element shows a red consent line
- * ("Mostrará algo suyo de forma permanente en el reproductor mientras ves un video"), asked again by an update that adds one.
- * It may be a plugin's only capability: it plays nothing, so it needs neither `resolve` nor `search`.
- */
-interface KinoManifestSlot {
-  elements: KinoSlotElement[];
-}
-
-/** One declared element: `id` is lowercase letters, digits, `-` or `_`, starting with a letter, 1 to 24 characters, unique in the block. */
-interface KinoSlotElement {
-  id: string;
-  /** What it shows; the answer for this id must be of this kind or it is dropped. */
-  kind: "text" | "icon" | "image" | "button";
-  /** `overlay` shows with the controls (VOD) or the channel card (live); `fixed` holds its place all the time and asks the person's approval. */
-  mode: "overlay" | "fixed";
-}
-
-/**
- * The context of `playerSlot(context)` and of `playerSlotAction({ id, context })`: the player panel's context for the title playing
- * plus `live`. The title's own plugin gets the panel's whole context (`kind`, `ref`, `title`, ids, position, its saved values...) with
- * `live: false`; another plugin gets the contributed-panel one (`foreign: true`, an opaque `ref`, `source`); on an En vivo channel the
- * provider confirmed, the live panel's (`kind: "live"`, `channel`...) with `live: true`. For a title that reaches no other plugin (18+,
- * something no plugin owns, a title Kino cannot confirm) and a live channel Kino cannot confirm, the **bare** context:
- * only `live`, `foreign: true`, `device`, `lang` and `features` -- **no `kind`**, not even movie or series. Read `live` and `lang`
- * (such as "es-CO"); treat everything else as possibly missing.
- */
-interface KinoSlotContext {
-  live: boolean;
-  foreign?: boolean;
-  device: string;
-  lang: string;
-  features?: string[];
-  /** Absent in the bare context. */
-  kind?: string;
-  [field: string]: unknown;
-}
-
-/**
- * One filled element in a `playerSlot` answer. `id` is a declared element; the other field(s) must match its `kind` -- `text` for a text
- * (a string; newlines split lines; at most 2 lines are kept, 2000 characters), `icon` (one of Kino's icon names) for an icon, `image`
- * (an https address on a public host) for an image, `label` (at most 40 characters) and/or `icon` for a button. Anything else is
- * dropped, not repaired; a repeated id keeps the first valid item.
- */
-type KinoSlotItem = KinoSlotNudge & (
-  | { id: string; text: string; size?: KinoSlotTextSize; weight?: KinoSlotTextWeight; color?: string; background?: string }
-  | { id: string; icon: string }
-  | { id: string; image: string }
-  | { id: string; label?: string; icon?: string });
-
-/** A text's weight: Inter 200, 300, 400, 500, 600 or 700 for every line (absent: Kino's own, the first line Medium and the next Regular). */
-type KinoSlotTextWeight = "extralight" | "light" | "normal" | "medium" | "semibold" | "bold";
-
-/** A text's size: 12, 14 (the default), 18 or 24 sp. */
-type KinoSlotTextSize = "small" | "normal" | "large" | "xlarge";
-
-/**
- * Any slot item may carry a nudge from its place in the row, in whole dp: `left` moves it right (negative: left), `top` moves it
- * down (negative: up). Clamped to -400..200 and -40..300; anything that is not a number counts as 0.
- *
- * A `text` may also set `color` (the letters) and `background` (the pill), each "#RRGGBB" or "#RRGGBBAA". An invalid field is
- * ignored on its own. The letters never get less than half opacity, a `color` under 2:1 contrast against an opaque pill (or Kino's
- * dark one when there is no `background`) is dropped, and Kino's white letters turn black on a light opaque pill. A `background`
- * with alpha 0 draws no pill.
- */
-interface KinoSlotNudge { left?: number; top?: number }
-
-/**
- * What `playerSlot(context)` returns. Kino keeps the items in declared order. If the answer is not an object with an `items` list the
- * last good frame stays (none the first time). Until the first good answer a failed call is retried every 5 s, at most 4 times.
- * Calls run unattended and never count toward "No responde".
- * With no "No responde" breaker for refreshes, a plugin that keeps timing out after its first frame is called again every `refreshMs` plus up to about 5 s.
- * Kino makes no call while it is in the background. A `fixed` slot's approval never carries over from a peer device or a backup: it is asked on each device.
- */
-interface KinoSlotAnswer {
-  items: KinoSlotItem[];
-  /**
-   * Call `playerSlot` again this many ms after the last call ended: raised to 2000 and lowered to 60000. Absent (or not a number):
-   * never again.
-   */
-  refreshMs?: number;
-}
-
-/** What `playerSlotAction` receives when the person presses a declared button on screen (OK on the remote). */
-interface KinoSlotActionEvent {
-  /** The pressed element's id. */
-  id: string;
-  context: KinoSlotContext;
-}
-
-/**
- * What `playerSlotAction` returns; `null` or `{}` does nothing. `player` is an ordinary `KinoPlayerAction`, read by the panel's own
- * reader and sifted as a press (the plugin of the title playing keeps its fields; any other plugin only `seekToMs`, or with the approved
- * `playerControl` capability `seekToMs`, `pause` and `speed`), then through Kino's gate. On a live channel a plugin always counts as
- * another one and `seekToMs`, `seekStepMs`, `speed`, `skip`, `markers` and `autoNext` are dropped, so only `pause` can survive, and only
- * with the approved `playerControl` capability (which a plugin with only `playerSlot` cannot declare: it needs a `panel`).
- */
-interface KinoSlotActionAnswer {
-  /**
-   * `true` opens this plugin's player panel (it needs a `panel` block or a contributed tab). If the panel is already open it is
-   * not switched to your tab. On an En vivo channel it only has an effect when the channel's player offers plugin panel tabs;
-   * otherwise (for example an own M3U channel) it is ignored and logged.
-   */
-  openPanel?: boolean;
-  player?: KinoPlayerAction;
-}
-
-/**
  * The manifest's `enhancements` (read from the Kino of apiVersion 14; contract.json `manifest.enhancements`): features of a
  * newer apiVersion offered WITHOUT raising the plugin's own `apiVersion`, so a Kino that does not know them (it ignores this
  * key) still installs and runs the plugin as before. Keyed by the apiVersion that brought the feature, e.g.
  * `"enhancements": { "14": { "capabilities": ["screen", "library"], "screen": { "label": "Inicio" } } }` in a plugin that keeps
  * `"apiVersion": 8`. A Kino that knows a key merges its block over the manifest, keys in numeric order: `capabilities` are
- * ADDED (only `"screen"`, `"library"`, `"playerPanelTab"`, `"playerControl"`, `"room"`, `"schedule"`, `"shared"`, `"ai"` and `"playerSlot"`), `screen`,
- * `settings` (the whole list), `panel`, `jobs` and `slot` REPLACE the manifest's (`"playerPanelTab"` and a `panel` with `"contributes": true`
+ * ADDED (only `"screen"`, `"library"`, `"playerPanelTab"`, `"playerControl"`, `"room"`, `"schedule"`, `"shared"` and `"ai"`), `screen`,
+ * `settings` (the whole list), `panel` and `jobs` REPLACE the manifest's (`"playerPanelTab"` and a `panel` with `"contributes": true`
  * come together in one block, and so do `"schedule"` and its `jobs`; Task 18: a top-level `jobs` below apiVersion 14 is never
  * read); then everything is
  * checked at that apiVersion with the very same rules as the plain fields. A plugin is NEVER refused because of an
@@ -1098,54 +874,8 @@ interface KinoSlotActionAnswer {
  * every block the app would drop as a problem.
  */
 interface KinoManifestEnhancements {
-  [apiVersion: string]: { provides?: KinoManifestProvides; consumes?: KinoManifestConsumes; capabilities?: ("screen" | "library" | "playerPanelTab" | "playerControl" | "room" | "schedule" | "shared" | "ai" | "playerSlot")[]; screen?: KinoManifestScreen; settings?: unknown[]; panel?: KinoManifestPanel; jobs?: unknown[]; slot?: KinoManifestSlot };
+  [apiVersion: string]: { capabilities?: ("screen" | "library" | "playerPanelTab" | "playerControl" | "room" | "schedule" | "shared" | "ai")[]; screen?: KinoManifestScreen; settings?: unknown[]; panel?: KinoManifestPanel; jobs?: unknown[] };
 }
-
-// ---------- the plugin protocol (apiVersion 20, contract.json `protocol`) ----------
-
-/**
- * A type of the plugin protocol's closed language: `"string"`, `"number"`, `"boolean"`, `"T?"` (optional: absent or null),
- * `"T[]"` (an array), the name of a type declared by the same door (capitalised, e.g. `"Movie"`), or an inline object of field
- * to type. A request is checked strictly (an extra or missing field, or a wrong type, is `bad_input`; nothing is coerced), an
- * answer loosely (undeclared fields are dropped; a missing or wrong one is `bad_output`). JSON only, at most 64 KB.
- */
-type KinoProtocolType = string | { [field: string]: KinoProtocolType };
-
-/** One call of a door: your export `proto_<door>_<call>(arg)` answers it. `in` may be left out (no arguments). */
-interface KinoProtocolCall { in?: KinoProtocolType; out: KinoProtocolType }
-
-/** One stream of a door: your export `proto_<door>_<stream>(cursor)` answers `{ items, cursor }`. `everySeconds` 30 to 86400 (60 when omitted). */
-interface KinoProtocolStream { out: KinoProtocolType; everySeconds?: number }
-
-/** A door a provider opens. `summary` (at most 120 characters) is the person's "Uses data from <provider> (<summary>)" line. */
-interface KinoProtocolDoor {
-  summary?: string;
-  /** At most 16. */
-  calls?: Record<string, KinoProtocolCall>;
-  /** At most 8. */
-  streams?: Record<string, KinoProtocolStream>;
-  /** Named object types of this door only; names start with a capital letter. */
-  types?: Record<string, Record<string, KinoProtocolType>>;
-}
-
-/** The manifest's `provides` (apiVersion 20, or `enhancements["20"]`): at most 4 doors; names are letters and digits starting with a letter, at most 32. */
-type KinoManifestProvides = Record<string, KinoProtocolDoor>;
-
-/** One entry of the manifest's `consumes`: `repo` is the provider's plain GitHub `owner/name` (a fork does not stand in), `door` its door, `calls` (at most 16) and `streams` (at most 8) the names you use. */
-interface KinoManifestConsumesEntry { repo: string; door: string; calls?: string[]; streams?: string[] }
-
-/** The manifest's `consumes` (apiVersion 20, or `enhancements["20"]`): at most 8 entries keyed by the alias `kino.plugins.call` takes. */
-type KinoManifestConsumes = Record<string, KinoManifestConsumesEntry>;
-
-/** Why `kino.plugins.call` rejected (the Error's `code`). */
-type KinoProtocolErrorCode = "provider_missing" | "not_declared" | "bad_input" | "bad_output" | "rate_limited" | "timeout" | "provider_failed";
-
-/**
- * The `arg` of the screenEvent named `protocol` (apiVersion 20): the new items of a stream your screen switched on with
- * `state.protocol.<alias>.<stream> = true`, each validated against the stream's `out`. An object here, not the string `arg` of
- * other events.
- */
-interface KinoProtocolEventArg { alias: string; stream: string; items: unknown[] }
 
 /**
  * A screen's timer: Kino sends `screenEvent { name: event }` every `ms` milliseconds (at least 1000: a shorter one is raised,
@@ -1313,10 +1043,7 @@ type KinoScreenTitleRef = { ref: string; kind: KinoScreenKind; id?: string; titl
  * of these ten shapes (anything else, a bare URL string or an intent, is dropped; a link goes only through `url`, behind
  * Kino's own sheet). `ref` at most 4096 characters, `q` at most 200.
  * Task 8: `search` opens Kino's search with `q` filled in and ONLY this plugin as the source (the person sees its chip and
- * may clear it; a plugin without `search` gets it refused). apiVersion 17: `scope: "all"` opens Kino's normal search on EVERY
- * source instead (no source is named, the plugin needs no `search`, the 18+ gate works as in Kino's search); you get nothing
- * back, no results and no list of sources, and it opens only from the person's own tap or submit (dropped and logged from `open`,
- * a timer, a load-more or a change). A plugin below apiVersion 17 gets it refused and logged; any other `scope` drops the go; `browse` its "Ver más" list for that ref; `section` its section;
+ * may clear it; a plugin without `search` gets it refused); `browse` its "Ver más" list for that ref; `section` its section;
  * `categories` Kino's Categorías showing this plugin's group first (its own screen when `screen.replaces` names them;
  * refused and logged when the plugin has no Categorías tiles: the `categories` export, `browse`, usable). Kino's page opens
  * over the screen: Back returns to the screen with its state. At most one such page every 500 ms: a second go sent meanwhile
@@ -1328,7 +1055,7 @@ type KinoScreenTitleRef = { ref: string; kind: KinoScreenKind; id?: string; titl
 type KinoScreenGo =
   | { title: KinoScreenTitleRef }
   | { play: KinoScreenTitleRef }
-  | { search: { q: string; scope?: "all" } }
+  | { search: { q: string } }
   | { browse: { ref: string; title?: string; titleEn?: string } }
   | { section: true }
   | { categories: true }
@@ -1337,62 +1064,7 @@ type KinoScreenGo =
   | { titleByIds: KinoScreenTitleByIds }
   | { url: KinoScreenUrl }
   | { copy: KinoScreenCopy }
-  | { useTheme: KinoScreenUseTheme }
-  | { setExperience: "light" | "full" }
-  | { installPlugin: KinoScreenInstallPlugin }
-  | { liveChannel: KinoScreenLiveChannel }
-  | { syncProvider: true };
-
-/**
- * `go: { syncProvider: true }` (the thirteenth shape): Kino opens its own sync-provider settings (Ajustes ▸ Conectar ▸ Proveedor),
- * where the person taps «Usar <your plugin>» to make it the provider that carries their data. It carries nothing and changes no
- * choice by itself, so it is the right last step of a sync provider's connect flow.
- *
- * - Only for a plugin that declares the `syncProvider` capability (else dropped, logged `not_sync_provider`), and only after the
- *   person's own tap or press (as `go.url` and `go.copy`).
- * - A Kino from before this shape drops the whole `go`, logged, so keep your own written instruction beside the button.
- */
-
-/**
- * `go: { useTheme: { theme } }` (apiVersion 18, the fourteenth shape): a button on your own screen activates one of your manifest's
- * `appThemes` ids exactly as Apariencia does; `theme: null` goes back to Kino's theme, only while your own theme is active. Only
- * from the person's own press or submit on your screen; dropped, logged, from `open`, timers, changes, a pop-up's `onClose`, panels
- * and notices, and below apiVersion 18. Refused, logged, for a theme Apariencia does not list as yours. Kino shows its own toast
- * and calls `screen` again with the new `activeTheme`.
- *
- * `go: { setExperience: "light" | "full" }` (apiVersion 18, the fifteenth shape): asks for the light experience (no shadows, no
- * effects, square corners) or the full one of the whole app, the two presets of Ajustes. Kino asks the person first, in its own
- * words naming your plugin, and changes nothing without their yes; nothing is asked when the app already has it. Only from the
- * person's own press or submit on your screen, as `useTheme`. A theme may also suggest one with its `experience` field.
- */
-interface KinoScreenUseTheme {
-  theme: string | null;
-}
-
-/**
- * Kino 0.9.81, `"recommends": ["owner/name", ...]` in kino-plugin.json (additive: valid at every apiVersion, an older Kino ignores
- * it): at most 8 plain GitHub `owner/name` strings (no URL, no sub-path, no `@ref`, at most 100 characters; case kept, repeats
- * ignoring case collapse), else the manifest is refused: `The "recommends" field must be a list of at most 8 plain GitHub
- * owner/name repositories`. `screen` and `screenEvent` then receive `installed`: `true` or `false` for exactly those entries
- * (the repo as you wrote it), never for any other plugin the person has. Kino calls `screen` again when it changes.
- */
-type KinoScreenInstalled = Record<string, boolean>;
-
-/**
- * `go: { installPlugin: { repo } }` (apiVersion 19, the sixteenth shape): Kino opens its own install sheet for `repo` (the same one
- * as Agregar un plugin), over your screen (no navigation to Plugins), so the person can install another plugin (a dependency of
- * yours, a sibling) in one tap and one confirmation. Nothing installs without the person's own Instalar on that sheet. When that
- * plugin is already installed Kino opens nothing and shows its own toast ("Ese plugin ya está instalado" / "That plugin is
- * already installed"); declare it in the manifest's `recommends` and read `installed` to show "Instalado" instead of a button.
- *
- * - `repo` is a plain GitHub `owner/name` (at most 100 characters), kept as you wrote it. A URL, a sub-path (`owner/name/dir`) or a
- *   `@ref` drops the whole `go`, logged; so does any other field.
- * - Only from the person's own press or submit on your screen (as `go.url` and `go.copy`): dropped, logged, from `open`, a timer, a
- *   change, a pop-up's `onClose`, a panel and a notice, and below apiVersion 19.
- */
-interface KinoScreenInstallPlugin {
-  repo: string;
-}
+  | { liveChannel: KinoScreenLiveChannel };
 
 /**
  * `go: { liveChannel: { provider, code } }` (Task 11, apiVersion 14, the twelfth shape): Kino tunes the player to the channel
@@ -1487,10 +1159,6 @@ type KinoScreenTitleByIds = {
  * buttons (`pause: true` beside it pauses the video; default it keeps playing under the screen) and as an item's or a row's
  * `open` in `home`, `section` and `browse` answers. With screens switched off, or the screen hidden or failing, a card or row
  * does what it did before; a plugin without a screen gets it refused and logged.
- * With no `route` the screen opens as `{ name: "main", params: {}, args }`: put what the screen must load in `args` (for a row item
- * in Kino's Home, `{ screen: { args: { open: url } } }`) and answer the reserved `open` with `route: { push: "detail" }`, so your
- * front page stays under the detail and Back returns to it. An item that names `route: "detail"` directly opens the screen with
- * nothing under it: Back then has nowhere to go.
  */
 type KinoScreenOpen = { route?: string; args?: Record<string, unknown> };
 
@@ -1545,12 +1213,6 @@ interface KinoScreenBase extends KinoScreenStyle {
   enabled?: boolean; hidden?: boolean;
   /** A tap on the node (a button's is `onPressed`). */
   onTap?: KinoScreenAction; onLongPress?: KinoScreenAction;
-  /**
-   * What a sideways swipe sends, by the direction the finger goes: `onSwipeLeft` turns to the next page, `onSwipeRight` to the previous
-   * one. Any node, not per size; a drag of at least 64 dp. On the TV they answer Right and Left once focus has nowhere further to go.
-   * Additive (Kino 0.9.82): an older Kino ignores them, so keep your buttons.
-   */
-  onSwipeLeft?: KinoScreenAction; onSwipeRight?: KinoScreenAction;
   /** The event arg of a shorthand-string action. */
   arg?: string;
   /** Drawn only on these devices / width classes; an unknown name drops the node. */
@@ -1637,22 +1299,6 @@ interface KinoScreenFieldRules { required?: boolean; errorText?: string; errorTe
 interface KinoScreenTextRules extends KinoScreenFieldRules { minLength?: number; pattern?: string }
 
 /**
- * Kino 0.9.83, additive (no new apiVersion; an older Kino asks for the picture without them): the request headers of an `Image`'s
- * `url`, for a site that serves its pictures only to requests that carry its own page as `Referer` (and a browser `User-Agent`).
- * Only these two names, each a text of 1 to 512 characters. They need an https `url` (an http picture, which a Kino with
- * `kino.screen.httpImages` draws, never takes them), and are sent only when the picture's host
- * is one of your manifest's `hosts` (a `*.` pattern counts); a `Referer` on a host you did not declare is left out. Without a
- * `User-Agent` Kino sends `Kino/<version>`. A header that is not valid is dropped and logged (Registro).
- *
- * @example
- * { type: "Image", url: page.imageUrl, aspect: "2:3", headers: { Referer: "https://mangasite.example/", "User-Agent": "Mozilla/5.0" } }
- */
-interface KinoScreenImageHeaders {
-  Referer?: string;
-  "User-Agent"?: string;
-}
-
-/**
  * One node of a screen tree: depth at most 10, at most 600 nodes, lists of at most 500 items, plain text of at most 2000
  * characters (`...En` the English twin). An invalid node is dropped and logged; the rest is drawn.
  */
@@ -1675,7 +1321,7 @@ type KinoScreenNode =
    * to its rounded shape, so an `Image` at its top runs to its edges; pad the text children with their own `padding`.
    */
   | (KinoScreenBase & { type: "Card"; children?: KinoScreenNode[]; variant?: KinoScreenResponsive<"plain" | "outlined" | "filled">; flush?: KinoScreenResponsive<boolean> })
-  | (KinoScreenBase & { type: "SingleChildScrollView"; children?: KinoScreenNode[]; direction?: KinoScreenResponsive<"vertical" | "horizontal">; zoom?: true | { max?: number }; onScroll?: KinoScreenAction })
+  | (KinoScreenBase & { type: "SingleChildScrollView"; children?: KinoScreenNode[]; direction?: KinoScreenResponsive<"vertical" | "horizontal"> })
   | (KinoScreenBase & { type: "GridView"; children?: KinoScreenNode[]; columns?: KinoScreenResponsive<number> })
   /** `SizedBox` is an empty box of its `width`/`height`; `Spacer` an empty one that takes its `flex` share. */
   | (KinoScreenBase & { type: "Spacer" | "SizedBox" | "Divider" })
@@ -1684,18 +1330,15 @@ type KinoScreenNode =
    * «hace 2 min», «ayer», rewritten every minute while shown, never a call to you) or `"clock"` («18:42», the device's 12/24 h).
    * With a `time`, `text` is optional and is its prefix («Actualizado hace 5 min»).
    */
-  | (KinoScreenBase & { type: "Text"; text: string; textEn?: string; style?: KinoScreenResponsive<"hero" | "h1" | "h2" | "h3" | "h4" | "h5" | "p" | "caption" | "label">; maxLines?: KinoScreenResponsive<number>; bold?: KinoScreenResponsive<boolean>; time?: number; timeFormat?: "relative" | "clock" | "countdown" })
-  | (KinoScreenBase & { type: "Text"; text?: string; textEn?: string; style?: KinoScreenResponsive<"hero" | "h1" | "h2" | "h3" | "h4" | "h5" | "p" | "caption" | "label">; maxLines?: KinoScreenResponsive<number>; bold?: KinoScreenResponsive<boolean>; time: number; timeFormat?: "relative" | "clock" | "countdown" })
+  | (KinoScreenBase & { type: "Text"; text: string; textEn?: string; style?: KinoScreenResponsive<"h1" | "h2" | "h3" | "h4" | "h5" | "p" | "caption" | "label">; maxLines?: KinoScreenResponsive<number>; bold?: KinoScreenResponsive<boolean>; time?: number; timeFormat?: "relative" | "clock" | "countdown" })
+  | (KinoScreenBase & { type: "Text"; text?: string; textEn?: string; style?: KinoScreenResponsive<"h1" | "h2" | "h3" | "h4" | "h5" | "p" | "caption" | "label">; maxLines?: KinoScreenResponsive<number>; bold?: KinoScreenResponsive<boolean>; time: number; timeFormat?: "relative" | "clock" | "countdown" })
   /**
    * `fallback` (apiVersion 14): one node drawn in the image's box, at its size, when the picture fails to load or there is
-   * no `url` (with a fallback, an image whose `url` is missing or not an address Kino may load is kept and draws it). It may
+   * no `url` (with a fallback, an image whose `url` is missing or not https on a public host is kept and draws it). It may
    * hold only Column, Row, Stack, Card, Spacer, SizedBox, Divider, Text, Icon, Badge, Skeleton and Image, at any depth, and
    * nothing in it is pressed (`onTap`/`onLongPress` there are ignored). Without one a failed picture shows Kino's mark.
-   * `url`: https on a public host, a `data:image/...;base64,` picture, or (Kino 0.9.88, additive: check
-   * `kino.screen.httpImages === true`) http on a public host by a poster's rule, never the home network; an older Kino drops
-   * an http one (the fallback draws).
    */
-  | (KinoScreenBase & { type: "Image"; url?: string; aspect?: KinoScreenResponsive<"16:9" | "2:3" | "1:1" | "banner" | `${number}:${number}`>; alt?: string; altEn?: string; fallback?: KinoScreenNode; fit?: KinoScreenResponsive<"cover" | "contain" | "width">; focus?: KinoScreenResponsive<"top" | "center" | "bottom">; headers?: KinoScreenImageHeaders })
+  | (KinoScreenBase & { type: "Image"; url?: string; aspect?: KinoScreenResponsive<"16:9" | "2:3" | "1:1" | "banner">; alt?: string; altEn?: string; fallback?: KinoScreenNode })
   | (KinoScreenBase & { type: "Icon"; name: KinoIconName })
   | (KinoScreenBase & { type: "Badge"; text: string; textEn?: string })
   | (KinoScreenBase & { type: "LinearProgressIndicator"; value?: number; labelText?: string; labelTextEn?: string })
@@ -1741,23 +1384,20 @@ type KinoScreenNode =
   | (KinoScreenInput & KinoScreenFieldRules & { type: "Chips"; options: KinoScreenOption[]; multiple?: boolean; value?: string | string[]; minLength?: number; maxLength?: number })
   | (KinoScreenInput & KinoScreenFieldRules & { type: "Switch" | "Checkbox"; value?: boolean })
   | (KinoScreenInput & { type: "Slider"; min?: number; max?: number; step?: number; value?: number })
-  | (KinoScreenBase & { type: "TabBar"; tabs: KinoScreenOption[]; value?: string; onChanged?: KinoScreenAction; /** additive, no new apiVersion: `false` takes away the line under the tabs (default `true`) */ divider?: boolean })
+  | (KinoScreenBase & { type: "TabBar"; tabs: KinoScreenOption[]; value?: string; onChanged?: KinoScreenAction })
   | (KinoScreenBase & { type: "emptyState" | "errorState"; title: string; titleEn?: string; text?: string; textEn?: string; icon?: KinoIconName })
   // Kino's own components: data only, drawn with Home's cards and rows. Items are what `home` rows return (KinoItem),
-  // read by the same rules (a series needs the episodes capability; posters and backdrops https, or http on a public host
-  // where `kino.screen.httpImages` is true, else Kino's placeholder); 18+ items show only while the 18+ code is unlocked. At most 1000 titles per tree, and at most 60 in a
+  // read by the same rules (a series needs the episodes capability; posters and backdrops https only, else Kino's
+  // placeholder); 18+ items show only while the 18+ code is unlocked. At most 1000 titles per tree, and at most 60 in a
   // grid inside a scroll, list or pop-up, or a rail inside a horizontal scroll (drawn all at once there).
   /** One Home poster card; without `onTap` it opens the title's page (`go: { title: { ref, kind } }`). */
-  | (KinoScreenBase & { type: "titleCard"; item: KinoItem; size?: KinoScreenResponsive<KinoScreenCardSize>; headers?: KinoScreenImageHeaders })
+  | (KinoScreenBase & { type: "titleCard"; item: KinoItem; size?: KinoScreenResponsive<KinoScreenCardSize> })
   /** A Home row: a title, 1..500 items, and "Ver más" (`go: { browse: { ref } }`) when `ref` is set. */
-  | (KinoScreenBase & KinoScreenPaging & { type: "titleRail"; title: string; titleEn?: string; items: KinoItem[]; ref?: string; size?: KinoScreenResponsive<KinoScreenCardSize>; headers?: KinoScreenImageHeaders })
+  | (KinoScreenBase & KinoScreenPaging & { type: "titleRail"; title: string; titleEn?: string; items: KinoItem[]; ref?: string; size?: KinoScreenResponsive<KinoScreenCardSize> })
   /** Home cards in a grid (default 3 columns), 1..500 items. */
-  | (KinoScreenBase & KinoScreenPaging & { type: "titleGrid"; items: KinoItem[]; columns?: KinoScreenResponsive<number>; headers?: KinoScreenImageHeaders })
-  /**
-   * A section's banner: title, text, an image and a title `logo` (each https on a public host, or http on one where
-   * `kino.screen.httpImages` is true: an older Kino drops an http one) and at most 2 buttons.
-   */
-  | (KinoScreenBase & { type: "heroCard"; title: string; titleEn?: string; text?: string; textEn?: string; image?: string; logo?: string; headers?: KinoScreenImageHeaders; buttons?: ((KinoScreenButton & { type: "ElevatedButton" | "TextButton" | "IconButton" }) | (KinoScreenButton & { type: "Button"; variant?: KinoScreenResponsive<"primary" | "secondary" | "text" | "icon"> }))[] })
+  | (KinoScreenBase & KinoScreenPaging & { type: "titleGrid"; items: KinoItem[]; columns?: KinoScreenResponsive<number> })
+  /** A section's banner: title, text, an https image and at most 2 buttons. */
+  | (KinoScreenBase & { type: "heroCard"; title: string; titleEn?: string; text?: string; textEn?: string; image?: string; buttons?: ((KinoScreenButton & { type: "ElevatedButton" | "TextButton" | "IconButton" }) | (KinoScreenButton & { type: "Button"; variant?: KinoScreenResponsive<"primary" | "secondary" | "text" | "icon"> }))[] })
   /**
    * A pop-up declared in the tree (`key` required), drawn only once a `{ open: key }` ui operation opens it. One pop-up at
    * a time; Back closes it first. An `AlertDialog` or `BottomSheet` takes `children` (an `AlertDialog` also `buttons`); a
@@ -1876,10 +1516,7 @@ type KinoScreenNode =
    * is one press and one TV stop; `selected` (with an `onTap`) fills it with primaryContainer.
    */
   | (KinoScreenBase & { type: "ListTile"; title: string; titleEn?: string; subtitle?: string; subtitleEn?: string; leading?: KinoScreenNode; trailing?: KinoScreenNode; dense?: KinoScreenResponsive<boolean> })
-  /**
-   * Task 17: a circle with a picture (`image`: https on a public host, or http on one where `kino.screen.httpImages` is true),
-   * else initials (at most 3), else an icon; `radius` 12..64 dp (default 20). No `borderRadius`.
-   */
+  /** Task 17: a circle with a picture, else initials (at most 3), else an icon; `radius` 12..64 dp (default 20). No `borderRadius`. */
   | (KinoScreenBase & { type: "CircleAvatar"; image?: string; text?: string; textEn?: string; icon?: KinoIconName; radius?: KinoScreenResponsive<number>; backgroundColor?: KinoScreenColorRole; labelText?: string; labelTextEn?: string })
   /**
    * Task 17: pages (at most 24) swiped across on a phone, Left and Right on a TV, Kino's dots under them; `onPageChanged`'s
@@ -1889,38 +1526,17 @@ type KinoScreenNode =
    */
   | (KinoScreenBase & { type: "PageView"; children: KinoScreenNode[]; initialPage?: number; onPageChanged?: KinoScreenAction; autoPlayMs?: number; viewportFraction?: KinoScreenResponsive<number>; padEnds?: KinoScreenResponsive<boolean> })
   /**
-   * apiVersion 17: full-screen pages, 2 to 8 `children` and a `key` (else dropped), under Kino's own progress bar, swiped on a
-   * phone, Left and Right on a TV, never by themselves. The page reached is in `state.inputs.<key>` (a number from 0);
-   * `onPageChanged`'s `value` is the settled index. Never inside a sideways scroll, a table cell or another `pages`.
-   */
-  | (KinoScreenBase & { type: "pages"; key: string; children: KinoScreenNode[]; onPageChanged?: KinoScreenAction; reverse?: boolean; progress?: "segments" | "bar" | "none" })
-  /**
    * Task 17 item G: only a result's root. The `appBar` sits under Kino's own title bar (never replacing or covering it), the
    * `body` takes the bounded height left (drawn in `layout: "fill"`), the button sits above the `bottomNavigationBar`.
-   *
-   * `onBack` (apiVersion 19, Flutter's PopScope with `canPop: false`): while the screen on show declares it, Back (the phone's,
-   * the TV remote's) does not close the screen or pop a route: Kino sends this action to you as the person's press and you
-   * answer as usual; your next tree no longer declares `onBack` when the next Back should leave. An open pop-up still closes
-   * first. No `go` in it. A failed or timed-out call closes the screen, and so does a second Back while the first is still
-   * running. A player panel ignores it.
    */
-  | (KinoScreenBase & { type: "Scaffold"; appBar?: KinoScreenAppBar; body: KinoScreenNode; floatingActionButton?: KinoScreenNode; bottomNavigationBar?: KinoScreenNavigationBar; onBack?: KinoScreenAction });
+  | (KinoScreenBase & { type: "Scaffold"; appBar?: KinoScreenAppBar; body: KinoScreenNode; floatingActionButton?: KinoScreenNode; bottomNavigationBar?: KinoScreenNavigationBar });
 
 /**
  * Task 17 item G: a Scaffold's top bar: `leading` and up to four `actions` are `IconButton`s with a `labelText`; `bottom` a `TabBar`.
  * `title` is a string (with its `titleEn` twin) or, Flutter's way, any node (a `TabBar`, a `Row` of buttons, an `Image`...; at
  * most 40 nodes) drawn in the room left of the actions: a `TabBar` there shares one row with the actions.
- * `mergeWithKinoBar` (apiVersion 19, opt-in, needs a `leading`): Kino draws ONE bar, your `leading` in the place of its Close
- * button and your `title` in the place of your plugin's name; your `actions` stay at the end, followed by Kino's own buttons.
- * Without a `leading` the flag is ignored and both bars show. The person then leaves by your `leading` or by Back.
- * `dense` (additive, no new apiVersion): on a phone the bar has 4 dp above and below its row instead of 16 (56 dp in all); a TV
- * and a player panel ignore it. **Recommended for every screen of a plugin: `mergeWithKinoBar: true` + `dense: true`**, one compact
- * bar instead of two; both are plain booleans, so choose by window with `ctx.device` / `ctx.size` when you need to.
- * `divider` (additive, no new apiVersion): `false` takes away the hairline at the bar's lower edge (default `true`). A logo instead
- * of the name: with `mergeWithKinoBar`, an `Image` as the `title` (a `data:image/png;base64,…` address, `fit: "contain"`, `h: 32`
- * or 40, and a `Text` as its `fallback`), painted on the bar's own colour.
  */
-type KinoScreenAppBar = KinoScreenBase & { type: "AppBar"; title?: string | KinoScreenNode; titleEn?: string; leading?: KinoScreenNode; actions?: KinoScreenNode[]; bottom?: KinoScreenNode; centerTitle?: boolean; dense?: boolean; divider?: boolean; backgroundColor?: KinoScreenColorRole; mergeWithKinoBar?: boolean };
+type KinoScreenAppBar = KinoScreenBase & { type: "AppBar"; title?: string | KinoScreenNode; titleEn?: string; leading?: KinoScreenNode; actions?: KinoScreenNode[]; bottom?: KinoScreenNode; centerTitle?: boolean; backgroundColor?: KinoScreenColorRole };
 /** Task 17 item G: a Scaffold's bottom bar of 2..5 items; `onChanged`'s `value` is the item's key (keep it in your state). */
 type KinoScreenNavigationBar = KinoScreenBase & { type: "NavigationBar"; items: { key: string; icon: KinoIconName; label: string; labelEn?: string; badge?: KinoScreenBadge }[]; value?: string; selectedIndex?: number; onChanged?: KinoScreenAction };
 
@@ -1999,22 +1615,6 @@ interface KinoScreenAnswer {
   close?: boolean;
   focus?: string | null;
   /**
-   * apiVersion 17: Kino draws the node with this `key` the person can see now (with a `state` change in the same answer, on the
-   * new tree; a hidden node, a closed pop-up's, another page's or a pop-up's own key is dropped; 18+ titles always go) as a 1080x1350 PNG, at 360 dp wide and font scale 1, in the screen's theme, with Kino's own line
-   * naming your plugin under it, and opens the system share sheet. Only the answer to the person's own tap or submit, within
-   * 5 s; dropped, logged, from `open`, a tick, a load-more, a change, an `onClose` and inside a panel. Images wait 3 s at most,
-   * then Kino's placeholder; buttons draw but do nothing. One at a time. A TV refuses it, logged, no toast: hide the button when
-   * `kino.device` is "tv". A plugin below apiVersion 17 is refused and logged. No capability and no permission line.
-   */
-  share?: { key: string } | null;
-  /**
-   * apiVersion 17: the id of one of the plugin's jobs: turns on Kino's own row of that job, with its approvals in place. Only the
-   * answer to the person's own tap or submit, within 5 s; dropped, logged, from `open`, a tick, a load-more, a change, an `onClose`
-   * and inside a panel. Only for a job without `enabledBy`. No answer turns it off, and a row the person switched off stays off: Kino
-   * tells them where to turn it on. Ask first with a line that says what runs; read `kino.jobOn` to know whether to ask.
-   */
-  enableJob?: string | null;
-  /**
    * The plugin's own settings to write, by key, through Kino's settings (the same store and sync as its settings screen;
    * written before the `screen` call the answer asks for, so `kino.config` reads the new value). Only keys the manifest
    * declares in `settings`, at most 32 (sorted), with a value that fits: a `text` a string (trimmed; blank or `null` empties
@@ -2055,10 +1655,6 @@ type KinoScreenFn = (arg: {
   state: Record<string, unknown>; route: KinoScreenRoute; device: KinoScreenDevice;
   size: { widthClass: KinoScreenSizeClass; heightClass: KinoScreenSizeClass; orientation: "portrait" | "landscape" };
   lang: "es" | "en";
-  /** apiVersion 18: the id of your `appThemes` theme active now, else null. A change calls `screen` again. */
-  activeTheme: string | null;
-  /** Kino 0.9.81: one key per entry of your manifest's `recommends`, written as you wrote it (`{}` when none): whether that plugin is installed now. A change calls `screen` again. */
-  installed: KinoScreenInstalled;
 }) => Promise<KinoScreenRoot>;
 
 /**
@@ -2090,40 +1686,24 @@ interface KinoJobDecl {
   everyOptions: number[];
   runOn?: "any" | "preferPhone";
   enabledBy?: string;
-  /**
-   * apiVersion 17, with `runOn: "any"` only, never with `enabledBy`: one run per profile of the device with the plugin on that did not
-   * leave itself out, one at a time. Consent is Kino's own row (a screen's `enableJob` turns it on, `kino.jobOn` reads it), and each
-   * profile has Kino's «Incluir este perfil». Each run has that
-   * profile's `kino.library`, `kino.shared`, `kino.storage`, `kino.config`, cookies, typed servers and `kino.lang`, in a fresh runtime
-   * (keep nothing in module variables). `ctx` never says which profile. For a profile not in use `kino.notifications`, `kino.coins` and
-   * `kino.seed` reject with `not_allowed`, `kino.log` stays out of the plugin's Registro, `kino.tmdb` uses Kino's key only, and outside `job` the runtime only reads.
-   */
-  perProfile?: boolean;
 }
 
 /**
  * `job` -- required with the capability "schedule": one background run, headless (no screen, nothing shown; its answer is never
- * read). Keep what you fetched in `kino.storage`; your screens read it when they open. At most 20 s, 10 requests (one at a
- * time; from apiVersion 17, with `ai` approved, 60 s and 20 requests; a `kino.fetch`, a `kino.ai.ask` and a `kino.tmdb` count), 2 MB of answer bodies (an answer that would cross it is refused with `too_large`) and 256 KB (UTF-8) written to
+ * read). Keep what you fetched in `kino.storage`; your screens read it when they open. At most 20 s, 10 `kino.fetch`es (one at a
+ * time), 2 MB of answer bodies (an answer that would cross it is refused with `too_large`) and 256 KB (UTF-8) written to
  * `kino.storage` per run (a cap crossed cuts the run: a failure). An allow-list: only `kino.fetch`, `kino.storage`, `kino.log`,
  * `kino.config` (read), `kino.cookies`, `kino.crypto`, `kino.sleep`, `kino.html`, `kino.secret`, `kino.error`, `kino.rank` and
- * `kino.library` (with its own approval), `kino.ai` (with its own approval), `kino.shared` (Task 8q-2), `kino.tmdb` (apiVersion 17), `kino.notifications` (with its own approval), `kino.coins`
- * (with its own approval, the balance only) and `kino.seed` (Task 18: under its usual telemetry-consent gate) work, plus the plain values (`kino.apiVersion`, `kino.device`...); everything else
- * (`kino.room`, `kino.qr`, `kino.browser`, `kino.ws`, `kino.meta`, `kino.nuvio`, `kino.catalog`, `kino.sync` and
+ * `kino.library` (with its own approval), `kino.ai` (with its own approval), `kino.shared` (Task 8q-2) and `kino.seed` (Task 18:
+ * under its usual telemetry-consent gate) work, plus the plain values (`kino.apiVersion`, `kino.device`...); everything else
+ * (`kino.room`, `kino.qr`, `kino.browser`, `kino.ws`, `kino.meta`, `kino.tmdb`, `kino.nuvio`, `kino.catalog`, `kino.sync` and
  * any later API) rejects with `not_allowed`.
  */
 type KinoJobFn = (ctx: JobContext) => Promise<unknown>;
 
 /** `screenEvent` -- required with the capability "screen": a node's event (the first one is the reserved `open`). */
 type KinoScreenEventFn = (arg: {
-  /** apiVersion 18: the id of your `appThemes` theme active now, else null. */
-  activeTheme: string | null;
-  /** Kino 0.9.81: as in `screen`, `{ "<repo in recommends>": true | false }`. */
-  installed: KinoScreenInstalled;
-  name: string;
-  /** The press's text; for the event `protocol` (apiVersion 20) the object `{ alias, stream, items }` instead. */
-  arg?: string | KinoProtocolEventArg;
-  value?: unknown; state: Record<string, unknown>; route: KinoScreenRoute; device: KinoScreenDevice; lang: "es" | "en";
+  name: string; arg?: string; value?: unknown; state: Record<string, unknown>; route: KinoScreenRoute; device: KinoScreenDevice; lang: "es" | "en";
 }) => Promise<KinoScreenAnswer | null>;
 
 // ---------- the player panel built with the screen kit (Task 8i, opt-in per result, apiVersion 14) ----------
@@ -2315,7 +1895,7 @@ interface KinoPlugin {
   playerEvent?(event: KinoPlayerEvent, context: KinoPanelContext): Promise<KinoPanelAnswer | null | void>;
   /**
    * apiVersion 14, required with "schedule" (Task 8q): one run of one of the manifest's `jobs`, in the background (see
-   * `KinoJobFn` and `JobContext`). 20 s per run (from apiVersion 17, with `ai` approved, 60 s); the answer is ignored.
+   * `KinoJobFn` and `JobContext`). 20 s per run; the answer is ignored.
    */
   job?(ctx: JobContext): Promise<unknown>;
   /** apiVersion 6, optional, needs `browse`: up to 24 tiles in Categorías, in your order. 20 s per call. */
@@ -2329,17 +1909,6 @@ interface KinoPlugin {
   details?(ref: string): Promise<KinoSeriesInfo | null>;
   /** `options.retry` (apiVersion 6) only when Kino resolves again after the origin refused your stream. `attempt` is 1 to 3; `status` is the origin's HTTP status when Kino heard one. */
   resolve(ref: string, options?: { retry?: { reason: "conflict" | "expired"; attempt: number; status?: 401 | 403 | 409 } }): Promise<KinoStream | KinoPluginByteStream>;
-  /**
-   * Optional, any apiVersion (additive: Kino 0.9.88 is the first to call it; an older one never does).
-   * Called after the person stayed about 0.3 s on one of your title pages, with the very `ref` your `resolve` gets for
-   * what its play button would start (a movie, an episode or a lone track; never a series or a live channel), so you can
-   * warm what that `resolve` will need (a session, an authorization). The answer is ignored, and so is a failure: pressing
-   * play calls `resolve` as always. A background call of 15 s (never "No responde"; a `kino.fetch` that would need the
-   * person to approve a host fails instead of asking), at most once every 5 minutes per `ref` and 6 a minute per plugin. Never called beside
-   * `"resolveAhead": true` (Kino resolves ahead instead), `catalogOnly` or `browser`. Must not start or count a play, nor
-   * spend anything of the person's (a quota, a trial, a free play).
-   */
-  prepare?(ref: string): Promise<unknown>;
   /**
    * apiVersion 13, required with "byteSource". Kino calls it to play a `{ source: "plugin" }` stream: `handle` is the one
    * you returned, `offset` is a multiple of 4096, `length` is at most 1048576 (1 MiB). Answer with the bytes of that range,
@@ -2423,11 +1992,6 @@ interface KinoPlugin {
   validateSettings?(values: Record<string, string | boolean | Array<Record<string, string>>>): Promise<Record<string, string> | string | null>;
 }
 
-/** A Stream's `subtitles` entry: a track at a `url`, or (apiVersion 25) inline `text` in `format` "vtt" or "srt" with no `url`. */
-type KinoStreamSubtitle =
-  | { lang: string; url: string; format?: "vtt" | "srt" }
-  | { lang: string; format: "vtt" | "srt"; text: string };
-
 /** A subtitles() track: a Stream's `subtitles` entry plus an optional `label` and `translated` (a machine translation). */
 interface KinoSubtitleTrack { lang: string; url: string; format?: "vtt" | "srt"; label?: string; translated?: boolean }
 
@@ -2508,47 +2072,8 @@ interface KinoSegment { type: "intro" | "outro" | "recap" | "credits" | "preview
  */
 type KinoSegmentsFn = (query: KinoSegmentsQuery) => Promise<KinoSegment[] | null>;
 
-/**
- * `lyrics(query)`'s argument (apiVersion 19, the "lyrics" capability): the song that is playing in the music player. `artist` may be
- * "" and `album`, `durationMs` and `ids` absent. The audio's address is never sent.
- */
-interface KinoLyricsQuery {
-  title: string;
-  artist: string;
-  album?: string;
-  /** The song's length: answer for that cut. */
-  durationMs?: number;
-  /** Only the ids Kino knows: `isrc`, `musicbrainz`, `youtube`. */
-  ids?: { isrc?: string; musicbrainz?: string; youtube?: string };
-}
-
-/** One synchronized line: it starts at `ms` (a whole number of ms, at least 0, never below the previous line's) and has text. */
-interface KinoLyricsLine { ms: number; text: string }
-
-/**
- * What Kino shows. Give `synced` and/or `plain`; `instrumental: true` alone says the song has no lyrics. `label` (60 characters) names
- * the source in the picker; `matchDurationMs` is the length of the entry you matched, so Kino can tell whether the timing fits.
- */
-interface KinoLyricsAnswer {
-  synced?: KinoLyricsLine[];
-  plain?: string;
-  label?: string;
-  instrumental?: boolean;
-  matchDurationMs?: number;
-}
-
-/**
- * `lyrics` -- required with the capability "lyrics" (apiVersion 19). `null`, `[]` or `{}` means "nothing for this song". Each bad
- * synced line is dropped on its own; 800 lines of 300 characters, a plain text of 20,000, the whole answer under 102,400 characters.
- * 10 s, a background call.
- */
-type KinoLyricsFn = (query: KinoLyricsQuery) => Promise<KinoLyricsAnswer | null>;
-
-/** A lyrics source: capabilities only "lyrics" (and maybe "subtitles", "tracking" or "segments"). */
-interface KinoLyricsSource { lyrics: KinoLyricsFn; subtitles?: KinoSubtitlesFn; track?: KinoTrackFn; segments?: KinoSegmentsFn }
-
 /** A plugin that plays (`resolve` required, as above), optionally finding subtitles, tracking or segments too. */
-interface KinoPlayingPlugin extends KinoPlugin { subtitles?: KinoSubtitlesFn; track?: KinoTrackFn; segments?: KinoSegmentsFn; lyrics?: KinoLyricsFn; meta?: KinoMetaFn }
+interface KinoPlayingPlugin extends KinoPlugin { subtitles?: KinoSubtitlesFn; track?: KinoTrackFn; segments?: KinoSegmentsFn; meta?: KinoMetaFn }
 
 /** A subtitle provider: capabilities only "subtitles" (and maybe "tracking" or "segments"), so `subtitles` is its export. */
 interface KinoSubtitleProvider { subtitles: KinoSubtitlesFn; track?: KinoTrackFn; segments?: KinoSegmentsFn }
@@ -2567,7 +2092,7 @@ interface KinoSegmentSource { segments: KinoSegmentsFn; subtitles?: KinoSubtitle
  * on Kino 0.9.53 and older too, keep declaring and exporting `resolve` (throw `kino.error("not_found", …, { userMessage })`)
  * and declare `search` or `home`: those apps ignore the field and require both.
  */
-interface KinoCatalogOnlyPlugin extends Omit<KinoPlugin, "resolve" | "sign" | "prepare" | "liveCategories" | "liveChannels" | "liveSearch" | "guide"> {
+interface KinoCatalogOnlyPlugin extends Omit<KinoPlugin, "resolve" | "sign" | "liveCategories" | "liveChannels" | "liveSearch" | "guide"> {
   /** Only for Kino 0.9.53 and older (which require it): never called from Kino 0.9.54 on. */
   resolve?: KinoPlugin["resolve"];
   subtitles?: KinoSubtitlesFn;
@@ -2577,7 +2102,7 @@ interface KinoCatalogOnlyPlugin extends Omit<KinoPlugin, "resolve" | "sign" | "p
 }
 
 /** Your module's exports: one of these. */
-type KinoPluginModule = KinoPlayingPlugin | KinoCatalogOnlyPlugin | KinoSubtitleProvider | KinoTracker | KinoSegmentSource | KinoLyricsSource;
+type KinoPluginModule = KinoPlayingPlugin | KinoCatalogOnlyPlugin | KinoSubtitleProvider | KinoTracker | KinoSegmentSource;
 
 // ---------- the kino API ----------
 
@@ -2803,97 +2328,6 @@ type KinoCipher =
   | "aes-128-gcm" | "aes-192-gcm" | "aes-256-gcm"
   | "des-ede3-cbc" | "des-ede3-ecb";
 
-/** apiVersion 20: `kino.visualBrowser.open` options. */
-interface KinoVisualBrowserOptions {
-  /** Where the window starts: https, the default port, on a host of the manifest's `hosts` (at most 2,048 characters). */
-  url: string;
-  /** A short line after your plugin's name in Kino's bar (at most 60 characters, no control character). */
-  title?: string;
-  /**
-   * When to close by itself. With it Kino draws no Listo button. `cookies`: every named cookie exists for the hosts the window
-   * was on (at most 32 names; checked about every 0.7 s, HttpOnly ones included). `urlMatches`: the window's address matches
-   * this pattern, where `*` is any run of characters (also none) and the rest is literal, against the whole address (at most
-   * 200 characters). Either one is enough.
-   */
-  doneWhen?: {
-    cookies?: string[];
-    urlMatches?: string;
-    /** The page's localStorage holds every one of these KEYS (at most 32, checked about every 0.7 s), for the page the window is on. Needs a Kino that reads localStorage (see `collect.localStorage`). */
-    localStorage?: string[];
-  };
-  /** What to hand back when the status is `"done"` (a closed or timed-out window returns nothing but `finalUrl`). */
-  collect?: {
-    /** Cookie NAMES (at most 32), read from the hosts the window was on and that your manifest declares; at most 64 cookies and 16,384 characters of names and values together. */
-    cookies?: string[];
-    /**
-     * localStorage KEYS (at most 32, each 1 to 256 characters without control characters) read from the page the window ends on, which
-     * must be on a host of your manifest. Only the keys you name are read, never the whole store, and only with `"done"`; the answer's
-     * `localStorage` holds the ones that exist (key to value), at most 65,536 characters of keys and values together (what does not fit
-     * is left out, never cut). `storeAs` keeps to the cookies: these values come back to your script. Kino's sheet lists the keys.
-     * A Kino that does not read localStorage ignores this option and answers no `localStorage`: check for it before relying on it.
-     */
-    localStorage?: string[];
-    /** The page's HTML as it stands, at most 2,000,000 characters (as `kino.browser.page`). */
-    html?: boolean;
-    finalUrl?: boolean;
-    /**
-     * Kino writes the collected cookies itself into YOUR `password` setting named `setting` (declared in the manifest), as
-     * `name=value; name2=value2` (`"header"`) or a JSON object (`"json"`), once your call has ended; you only get `stored` and
-     * `storedNames`, never a value. Needs `cookies`. The text must fit the setting (500 characters for a `password`): else `"store_failed"`.
-     *
-     * `spill`: a longer cookie list (YouTube Music's needs about 850 characters) goes into up to 3 MORE of your declared `password`
-     * settings (distinct, none equal to `setting`, else `"bad_args"`). Kino cuts the text at 500 characters and fills `setting`, then
-     * each `spill` setting in order (a header text may be cut inside a cookie); settings the text does not reach are emptied, but only
-     * if they hold a value. All of them are saved in ONE save, all or nothing; if `(1 + spill.length) x 500` cannot hold the text:
-     * `"store_failed"` and nothing is stored. To read it back, concatenate the settings' values in that order WITHOUT a separator:
-     * `[kino.config.cookieA, kino.config.cookieB, ...].join("")`.
-     *
-     * `thenEvent`: the name of a `screenEvent` Kino sends to THIS plugin's open screen once the setting was written (your call has
-     * ended by then, so a screen cannot read the new account from the call itself). Its `arg` is `{ stored: ["SID", ...] }` (cookie
-     * names, never a value) and it has no `value`. Same name rules as any event (1 to 128 of `A-Z a-z 0-9 . _ ~ -`, never `"open"`,
-     * else `"bad_args"`). Sent only when the call came from a screen's `screenEvent` (from a settings action or a panelAction the
-     * option is accepted and nothing is sent), only after a successful write (never if it failed or the window was not `"done"`),
-     * dropped silently when your screen is no longer open or its event queue is full, at most once per call. It is a follow-up of
-     * the person's press, not a press: like a change, its answer's `go.url`, `go.copy`, `go.titleByIds` and `go.installPlugin`,
-     * `share` and `enableJob` are dropped; it may change `state`, `config` and show a toast.
-     */
-    storeAs?: { setting: string; format: "header" | "json"; spill?: string[]; thenEvent?: string };
-  };
-  /**
-   * `"browser"`: the window identifies itself as the phone's Chrome (one string Kino keeps up to date). Or your own string, 1 to
-   * 300 printable ASCII characters (a site that changes what it accepts is fixed by a plugin update, not a Kino release). Either
-   * way the WebView marker (`; wv`) is removed and `X-Requested-With` is not sent (on a WebView that lets Kino remove it). Absent:
-   * the WebView's own. The sheet tells the person which one.
-   */
-  userAgent?: "browser" | (string & {});
-  /**
-   * At most 600,000 (10 minutes, the default); a larger value is brought down to it, a smaller one up to 5,000. This is the only
-   * time limit of the window: the call's own time bound (a settings action's, a panelAction's, a screenEvent's) does not run while
-   * the window is up, so a sign-in with 2-step verification can take its time. Once it closes the call has at least 10 seconds
-   * to run the code that follows `open`.
-   */
-  timeoutMs?: number;
-}
-
-/** apiVersion 20: what `kino.visualBrowser.open` answers. */
-interface KinoVisualBrowserResult {
-  /** `"done"`: the person pressed Listo or your `doneWhen` was met. `"closed"`: they closed the window (or said No to the sheet). `"timeout"`: `timeoutMs` passed. */
-  status: "done" | "closed" | "timeout";
-  /** The window's last address, when `collect.finalUrl` was true and it is still on your hosts. */
-  finalUrl?: string;
-  /** The cookies asked for in `collect.cookies` (name to value), only with `"done"` and without `storeAs`. */
-  cookies?: Record<string, string>;
-  /** The localStorage values asked for in `collect.localStorage` (key to value; a key the page did not have is absent), only with `"done"`. */
-  localStorage?: Record<string, string>;
-  html?: string;
-  /** With `storeAs`: true when Kino keeps the cookies for you (false when none of the named ones existed: nothing was stored). */
-  stored?: boolean;
-  /** With `storeAs`: the NAMES of the cookies Kino keeps, never their values. */
-  storedNames?: string[];
-  /** The user agent the window used, when you chose one (`userAgent`). */
-  userAgent?: string;
-}
-
 /** apiVersion 6: `kino.browser.capture` options. */
 interface KinoBrowserCaptureOptions {
   /** 1..25000 ms; default 18000. */
@@ -3056,188 +2490,6 @@ interface KinoNotice {
   go?: { screen: { route?: string; args?: Record<string, unknown> } } | { title: { ref: string; kind: string; id?: string; title?: string } } | { titleByIds: KinoScreenTitleByIds };
 }
 
-/**
- * One plugin a store offers (apiVersion 15, capability "pluginStore"). Kino keeps what fits the caps (contract.json `kinoStore`),
- * paints it with its own cards and re-checks everything at install. An entry with no `address` and no `stremio`, no valid `id`
- * or no `name` is dropped.
- */
-interface StoreEntry {
-  /** `owner/repo[/path][@ref]` or `url:https://.../kino-plugin.json`. Absent only for a `stremio` entry. */
-  address?: string;
-  /** The plugin's id (`^[a-z0-9][a-z0-9-]{1,39}$`). */
-  id: string;
-  /** 1 to 60 characters. */
-  name: string;
-  /** At most 300 characters. */
-  description?: string;
-  /** At most 4000 characters. */
-  longDescription?: string;
-  /** Any of `movies`, `series`, `anime`, `live`, `radio`, `subtitles`, `utilities`, `adult`. */
-  categories?: string[];
-  tags?: string[];
-  /** An https URL. */
-  icon?: string;
-  /** Https URLs. */
-  screenshots?: string[];
-  version?: string;
-  author?: string;
-  /** Higher is more popular: the "popular" sort. */
-  popularity?: number;
-  /** When it last changed, in milliseconds since 1970: the "recent" sort. */
-  updatedAt?: number;
-  /** Honoured only from Kino's own built-in store; ignored from any other. */
-  recommended?: boolean;
-  /** A Stremio manifest URL, installed through Kino's Stremio flow (then `address` may be absent). */
-  stremio?: string;
-  /** Capabilities the plugin needs: Kino hides an entry this build cannot run. */
-  requires?: string[];
-  needsSetup?: boolean;
-  /** A hint that the plugin is signed by its author (the card says "Firmado"); Kino re-checks at install. */
-  signed?: boolean;
-  /** A hint of the author key that signs it (64 lowercase hex); display only. */
-  authorKey?: string;
-}
-
-/** `storeSync(arg)`: the argument (apiVersion 15, capability "pluginStore"). */
-interface StoreSyncArg {
-  /** `"schedule"`: the background refresh at the person's interval. `"reload"`: the person pressed reload. */
-  reason: "schedule" | "reload";
-  /** When this store last synced successfully, in milliseconds since 1970 (absent on the first sync). */
-  since?: number;
-  /** What you returned as `state` last time. */
-  state?: Record<string, unknown>;
-}
-
-/** `storeSync(arg)`: the answer. */
-interface StoreSyncAnswer {
-  /** `true`: `entries` is the store's whole list and anything missing is removed. `false`: upserts, plus `removed`. */
-  full: boolean;
-  /** At most 5000 kept; the whole answer at most 4 MB of JSON. */
-  entries: StoreEntry[];
-  /** With `full: false`, the addresses that left the store. */
-  removed?: string[];
-  /** A small object (at most 16 KB of JSON) Kino keeps for you and hands back next time: a cursor, an etag, a date. */
-  state?: Record<string, unknown>;
-}
-
-/** `storeList(arg)` of a live store (`"pluginStore": { "mode": "live" }`). */
-interface StoreListArg {
-  category?: string;
-  sort: "popular" | "recent";
-  cursor?: string;
-}
-
-/** `storeSearch(arg)` of a live store. Both live calls answer `{ entries, next? }` within 5 s, at most 20 a minute. */
-interface StoreSearchArg {
-  q: string;
-  category?: string;
-  cursor?: string;
-}
-
-/** What a handle of the `files` capability is (apiVersion 21): the kind a file has, from its mime type and then its extension. */
-type KinoFileKind = "video" | "audio" | "book" | "image" | "subtitle" | "other";
-
-/** A file the person picked (apiVersion 21). `id` is opaque: Kino keeps where the file is, you never see an address. */
-interface KinoFile {
-  id: string;
-  name: string;
-  /** Bytes. */
-  size: number;
-  mime: string;
-  kind: KinoFileKind;
-  /** True when the bytes were copied into your plugin's own store (`copy: true`); false: a reference to the original. */
-  copied: boolean;
-  /** Milliseconds since 1970 when the person picked it. */
-  addedAt: number;
-  /** The id of the folder it came from, for a file listed inside a picked folder. */
-  folder?: string;
-}
-
-/** A folder the person picked (apiVersion 21): one grant for everything under it. */
-interface KinoFileFolder {
-  id: string;
-  name: string;
-  addedAt: number;
-}
-
-/** The error codes of `kino.files`: `unavailable` (no picker on this device, or no press), `not_allowed` (a pick from a call the person did not start), `busy`, `timeout`, `invalid_request`, `gone` (moved, deleted or the grant lost), `too_large`, `denied` (not your handle), `quota`. */
-type KinoFilesErrorCode = "unavailable" | "not_allowed" | "busy" | "timeout" | "invalid_request" | "gone" | "too_large" | "denied" | "quota";
-
-/** What you tell Kino about one element the person is part way through (apiVersion 22, capability "progress"). */
-interface KinoProgressSet {
-  /** The element: 1 to 128 characters of `A-Z a-z 0-9 . _ ~ -`, unique within your plugin (a chapter, a book, an episode). */
-  id: string;
-  /** How far along the element is as a whole, 0 to 1; you decide what "whole" is. */
-  fraction: number;
-  /** The element's title, for your own shelf (at most 200 characters). Optional. */
-  title?: string;
-  /** A short line about where the person is, at most 80 characters: "Cap. 87 · hoja 12 de 40". */
-  label?: string;
-  /** The same in English, at most 80 characters. */
-  labelEn?: string;
-  /** An image for your own shelf: an https address (the rule of a screen's Image) or a KinoImageRef of your imageSource capability. */
-  poster?: string | KinoImageRef;
-  /** Anything you need to come back to the place: any JSON value (a string, number, boolean, object or array), at most 1024 bytes once serialized. It is your own opaque data: Kino never reads it, it only hands it back as you set it (`get`, `list`). A `go.screen` route and args is the usual use. */
-  resume?: unknown;
-  /** True marks the element finished now. */
-  done?: boolean;
-  /** 0 to 1, default 0.9: Kino marks the element finished when `fraction` reaches this (unless you give `done`). */
-  doneAt?: number;
-}
-
-/** What `kino.progress.get` answers for an element you have set. */
-interface KinoProgressEntry {
-  /** The element's id (set by `list`; `get` answers the same shape). */
-  id: string;
-  fraction: number;
-  title?: string;
-  poster?: string;
-  label?: string;
-  /** The English line you set with `labelEn`. */
-  labelEn?: string;
-  resume?: unknown;
-  done: boolean;
-  /** Milliseconds since 1970 of the last `set`. */
-  updatedAtMs: number;
-}
-
-/** The options of `kino.progress.list`. */
-interface KinoProgressListOptions {
-  /** 1 to 100, default 50. */
-  limit?: number;
-  /** Only elements set at or after this time, milliseconds since 1970; a finite number >= 0. */
-  sinceMs?: number;
-}
-
-/** The error codes of `kino.progress`: `not_allowed` (the plugin does not declare the capability, the call is in a scheduled job that runs for a profile other than the active one, or Kino could not keep it right now), `bad_request` (a bad id, fraction, label, poster or doneAt), `too_large` (the `resume` is over 1024 bytes). */
-type KinoProgressErrorCode = "not_allowed" | "bad_request" | "too_large";
-
-/** What `kino.coins.balance()` answers (apiVersion 16). */
-interface KinoCoinsBalance {
-  /** The person's Kino coins now. */
-  balance: number;
-  /** Coins earned by watching today (UTC). */
-  earnedToday: number;
-  /** The most a UTC day may earn (20). */
-  capToday: number;
-}
-
-/** `kino.coins.give(gift)` (apiVersion 16): ONE coin. */
-interface KinoCoinsGift {
-  /** The recipient's coins account (1 to 128 characters), as your server names it (Kino Social: `coinsAccount`). */
-  to: string;
-  /** The post the coin is for (1 to 64 characters). */
-  postId: string;
-}
-
-/** What `kino.coins.give` answers (apiVersion 16). */
-interface KinoCoinsGiven {
-  /** The person's balance left. */
-  balance: number;
-  /** The coins the post holds now. */
-  postTotal: number;
-}
-
 /** `kino.identity.telegram(options?)` (apiVersion 15). */
 interface KinoIdentityOptions {
   /** A nonce your server issued: 16 to 128 of `A-Z a-z 0-9 _ -`. With it, Kino signs and attests (see [KinoIdentity]). */
@@ -3255,11 +2507,9 @@ interface KinoIdentity {
   /**
    * The gate token Kino's bot signed for this device (`base64url(payload).base64url(Ed25519 signature)`). It still carries the
    * Telegram account, so your server can verify it with the bot's public key; a per-audience token from the bot is the
-   * planned fix. A credential: never log or show it. Present only for a plugin signed with one of contract.json
-   * `kinoIdentity.tokenAuthors` (`07DA-B67F-2ACF-B4D3`, Kino's own; `E04E-EA25-1A34-290E`, a second author key Kino trusts like its own, from
-   * Kino 0.9.88); any other author gets the `id` and, with a challenge, the attestation, but never the token.
+   * planned fix. A credential: never log or show it.
    */
-  token?: string;
+  token: string;
   /** With a challenge: the public key (X.509 SubjectPublicKeyInfo DER, base64url without padding) of Kino's key for your plugin on this install. */
   deviceKey?: string;
   /**
@@ -3307,49 +2557,6 @@ interface KinoLibraryWatchedOptions { limit?: number; kind?: "movie" | "series";
 
 /** `kino.library.saved`'s options: `limit` 1..100 (default 50), `kind` filters. */
 interface KinoLibrarySavedOptions { limit?: number; kind?: "movie" | "series" }
-
-/** `kino.library.stats`'s only option: `month` as "yyyy-mm" (a real month); the current month when left out. */
-interface KinoLibraryStatsOptions { month?: string }
-
-/** One title of [KinoLibraryStats.top]; never a live channel. */
-interface KinoLibraryStatsTitle {
-  title: string;
-  /** Only when Kino holds it. */
-  year?: number;
-  kind: "movie" | "series";
-  /** Each only when Kino knows it; may be empty. */
-  ids: { tmdb?: number; imdb?: string };
-  /** What Kino already holds for the item (no network call): an https image address, only when it has one. */
-  poster?: string;
-  /** Only when Kino holds genres for the item. */
-  genres?: string[];
-  /** Seconds watched in the month, every device summed. */
-  seconds: number;
-}
-
-/**
- * What `kino.library.stats` answers for a month (contract.json `kinoLibrary.stats`). 18+ is out of every number: a title known to
- * be 18+ at read time leaves the totals and `top`; a title Kino cannot place now (its plugin is gone) stays in the totals but not in
- * `top`. Live channels are in the totals and never named.
- */
-interface KinoLibraryStats {
-  /** "yyyy-mm". */
-  month: string;
-  /** True when part of the month comes from the play history, not the counter (a month before it existed, or the month of release). */
-  estimated: boolean;
-  seconds: number;
-  secondsByKind: { movie: number; series: number; live: number };
-  /** By the local hour: morning 05-12, afternoon 12-18, night 18-23, lateNight 23-05. Null for a month with no counted time. */
-  secondsByBand: { morning: number; afternoon: number; night: number; lateNight: number } | null;
-  /** Distinct movies and series (live channels are not titles). */
-  titles: number;
-  /** Distinct chapters of series played in the month. */
-  episodes: number;
-  activeDays: number;
-  longestStreakDays: number;
-  /** At most 20, most seconds first. */
-  top: KinoLibraryStatsTitle[];
-}
 
 /** What `kino.library` throws (contract.json `kinoLibrary.errorCodes`). */
 type KinoLibraryErrorCode = "permission_denied" | "rate_limited" | "bad_request";
@@ -3557,18 +2764,6 @@ declare namespace kino {
    * person approved its red consent line. `false` otherwise; `undefined` on an older Kino (keep your own fallback).
    */
   const fetchAnyHost: boolean | undefined;
-  /**
-   * Your plugin's FEATURE apiVersion on this Kino: your manifest's `apiVersion`, or the highest key of your
-   * `enhancements` this Kino applied, whichever is higher. A feature gated on it (such as `clockLive`, apiVersion 27)
-   * is on exactly when this is high enough, so you can keep a lower base for older Kino and still use it here.
-   * Kino 0.9.88, additive: `undefined` on Kino 0.9.87 and older (which have no `clockLive`).
-   */
-  const pluginApiVersion: number | undefined;
-  /**
-   * apiVersion 17: whether Kino's own row of one of the plugin's jobs is on, so a screen knows whether to ask (`enableJob`). Only
-   * inside `screen` and `screenEvent`; anywhere else, a job included, it throws `not_allowed`. Undefined below apiVersion 17.
-   */
-  function jobOn(jobId: string): boolean;
 
   /**
    * Only to the manifest's hosts over https (http only on a host declared `insecureHttp`), or to the person's own server as typed.
@@ -3626,18 +2821,6 @@ declare namespace kino {
   function tmdb(path: string, params?: Record<string, string | number | boolean>): Promise<any>;
 
   /**
-   * Kino 0.9.84, no new apiVersion (feature-detect with `typeof kino.image === "object"`): `thumbnail(url, { maxWidth?, maxBytes? })`
-   * downloads an `https` picture under THIS plugin's own `kino.fetch` rules (its hosts, https only, never the home network, its
-   * request budget; capped at 5 MB) and answers a small JPEG as `"data:image/jpeg;base64,…"`. `maxWidth` 32 to 400 (default 200),
-   * `maxBytes` 2048 to 32768 (default 16384). At most 20 calls a minute. Throws `bad_request`, `host_not_allowed`, `not_found`,
-   * `network`, `timeout`, `too_large`, `not_image`, `rate_limited`, `not_allowed` (from `sign()`). Under the Node kit it only
-   * passes a JPEG/PNG that is already small enough through (else `kit_unsupported`); `KINO_THUMBNAIL_FIXTURE=<file>` answers a file.
-   */
-  namespace image {
-    function thumbnail(url: string, options?: { maxWidth?: number; maxBytes?: number }): Promise<string>;
-  }
-
-  /**
    * Kino 0.9.71, apiVersion 11, needs `"nuvio"` in the manifest's `capabilities` (a declarative capability; the consent sheet says "Instala y usa
    * scrapers de Nuvio del repositorio que indica para buscar enlaces"; check `typeof kino.nuvio === "object"` first). EXPERIMENT. You name
    * your Nuvio repositories in the manifest's `nuvioRepos` (1 to 4, `owner/repo`; the capability needs it) and `kino.nuvio` refuses any other (`not_allowed`).
@@ -3671,8 +2854,8 @@ declare namespace kino {
    * in Kino, read-only, from the profile in use: never another profile, never an 18+ title (even with the 18+ code unlocked),
    * never a stream URL or another plugin's ref. Newest first, one entry per title (a series' chapters fold into one).
    * The person approves it at install, and again on the update that adds it, on a RED consent line: "Podrá leer lo que has
-   * visto y guardado en Kino, cuánto lo ves y a qué hora, y enviarlo a sus servicios" / "Can read what you have watched and saved in
-   * Kino, how much and at what time of day, and send it to its services", next to your declared hosts. They can switch it off later in your tab in Ajustes; every call then rejects
+   * visto y guardado en Kino, y enviarlo a sus servicios" / "Can read what you have watched and saved in Kino, and send it to
+   * its services", next to your declared hosts. They can switch it off later in your tab in Ajustes; every call then rejects
    * with `permission_denied` until they switch it back on. Only inside a call the person started (`screen`, `screenEvent`,
    * `home`, `section`, `search`); any other call (background, prewarm, sync, `resolve`) rejects with `permission_denied`.
    * At most 30 calls a minute per plugin (both functions together), then `rate_limited`; a wrong option is `bad_request`. A
@@ -3687,13 +2870,6 @@ declare namespace kino {
     function watched(options?: KinoLibraryWatchedOptions): Promise<KinoLibraryEntry[]>;
     /** The titles saved (the heart on a title's page), most recently saved first: no `progress` and no `watchedAtMs`. */
     function saved(options?: KinoLibrarySavedOptions): Promise<KinoLibraryEntry[]>;
-    /**
-     * apiVersion 17 (Tu mes en Kino), same capability and switch: one month's aggregates of the profile in use, every device of the
-     * person summed. Only on a plugin that declares apiVersion 17 or later (feature-detect with `typeof kino.library.stats ===
-     * "function"`); the same rate limit as `watched` and `saved`; a `month` that is not "yyyy-mm" (or any other option) is
-     * `bad_request`. Never 18+; nothing finer than the month (no per-day series, no timestamps).
-     */
-    function stats(options?: KinoLibraryStatsOptions): Promise<KinoLibraryStats>;
   }
 
   /**
@@ -3787,109 +2963,6 @@ declare namespace kino {
   }
 
   /**
-   * apiVersion 16, capability "coins" (a red consent line, approved by the person; no switch of its own: disabling or removing
-   * the plugin revokes it): the person's Kino coins, earned by watching (1 every 10 minutes, 20 a day). Kino's own client talks
-   * to the coins service: you never see its address nor its session. `balance()` from `screen`, `screenEvent`, `panelAction`
-   * (a timer tick too) or your scheduled `job`; `give()` only inside a call the person started from `screen`, `screenEvent` or
-   * `panelAction`. 30 calls a minute. Rejects with a KinoError whose `code` is `permission_denied`, `not_available` (the
-   * service is down, or this device has no Telegram validation), `rate_limited`, `bad_request`, `disabled` (the person
-   * switched Kinos off in Kino's Ajustes: show nothing of coins), or the service's own `no_balance`, `self_gift`,
-   * `unknown_account`. Present on every apiVersion 16 runtime: feature-detect with
-   * `typeof kino.coins === "object"` (an older Kino has none: hide your coin button).
-   */
-  namespace coins {
-    function balance(): Promise<KinoCoinsBalance>;
-    function give(gift: KinoCoinsGift): Promise<KinoCoinsGiven>;
-  }
-
-  /**
-   * apiVersion 21, capability "files" (a plain consent line): files that are on the person's device. `pick` and `pickFolder` open
-   * Kino's picker and only run from a press of the person's (a settings action, a `panelAction`, or a `screenEvent` that follows a
-   * tap or submit); everything else needs no press, because a handle exists only for what the person picked. You get opaque
-   * handles, never an address. By default a handle is a reference (the file stays where it is; a moved or deleted file rejects with
-   * `gone`); `pick({ copy: true })` copies the bytes into your plugin's own store instead (up to 64 MB a file, 1 GB in all).
-   * `read` and `readText` take a range (`start`, `end` exclusive), at most 2,000,000 bytes a call, like `kino.fetch`'s `maxBytes`:
-   * read a big book by its parts. `url(id)` is a `kino-file:<id>` address a stream or an audio track may carry, so the player
-   * plays the file; the host rules do not apply to it. Nothing here uploads or sends anything. Rejects with a KinoError whose
-   * `code` is a [KinoFilesErrorCode]. Present on every apiVersion 21 runtime that declares the capability: feature-detect with
-   * `typeof kino.files === "object"` (an older Kino has none).
-   */
-  namespace files {
-    /** Opens the picker; resolves to the handles the person picked (an empty list when they cancel). */
-    function pick(options?: { kinds?: KinoFileKind[]; multiple?: boolean; copy?: boolean }): Promise<KinoFile[]>;
-    /** Opens the folder picker; resolves to the folder, or null when the person cancels. */
-    function pickFolder(options?: { kinds?: KinoFileKind[] }): Promise<KinoFileFolder | null>;
-    /** Your handles, newest first; with `folder`, the files under that picked folder. */
-    function list(options?: { folder?: string; kinds?: KinoFileKind[] }): Promise<KinoFile[]>;
-    /** The folders the person picked for you. */
-    function folders(): Promise<KinoFileFolder[]>;
-    function info(id: string): Promise<KinoFile>;
-    /** Bytes `start` to `end` (exclusive, clamped to the file), at most 2,000,000. */
-    function read(id: string, range?: { start?: number; end?: number }): Promise<Uint8Array>;
-    /** The same range as UTF-8 text. */
-    function readText(id: string, range?: { start?: number; end?: number }): Promise<string>;
-    /** Drops the handle (and the copy of an imported file). */
-    function forget(id: string): Promise<void>;
-    /** `kino-file:<id>`: for a stream's or an audio track's `url`. */
-    function url(id: string): string;
-  }
-
-  /**
-   * apiVersion 22, capability "progress" (no approval line: it keeps only your plugin's own data about the person's own reading):
-   * tell Kino how far along the person is in something that is not a video. Kino draws nothing from it (no Home row, no card):
-   * you build your own shelf (a "keep reading" row on your screen) from `list`, and `resume` is your own opaque data (up to 1 KB)
-   * that Kino never reads.
-   * Call `set` as often as you like, even on every page: Kino keeps the latest per element and writes at most every 2 seconds
-   * (and when the screen closes or the app goes to the background); at most 20 calls a second, the rest are coalesced, not
-   * errors; 500 elements per plugin, the oldest by last activity dropped. An element is finished with `done: true` or when
-   * `fraction` reaches `doneAt` (default 0.9); a later `set` with a lower fraction reopens it. A scheduled job may call it, but
-   * not a job that runs for a profile other than the active one (`perProfile` jobs): there it rejects with `not_allowed`. Rejects with a
-   * KinoError whose `code` is a [KinoProgressErrorCode]. Feature-detect with `typeof kino.progress === "object"` (an older Kino
-   * has none); declare the capability as an enhancement (`enhancements["22"]`) to keep running on a Kino that does not have it.
-   *
-   * @example
-   * // A reader: save the place on each page that is turned.
-   * async function onPage(chapter, page, pages) {
-   *   await kino.progress.set({
-   *     id: "ch-" + chapter.id,
-   *     title: chapter.mangaTitle,
-   *     fraction: page / pages,
-   *     label: "Cap. " + chapter.number + " · hoja " + page + " de " + pages,
-   *     labelEn: "Ch. " + chapter.number + " · page " + page + " of " + pages,
-   *     poster: chapter.cover,
-   *     resume: { screen: "reader", args: { chapter: chapter.id, page } },
-   *   });
-   * }
-   */
-  namespace progress {
-    /** Saves how far along an element is. Resolves when Kino has taken it (not when it is on disk). */
-    function set(entry: KinoProgressSet): Promise<void>;
-    /** What you last set for the element, or null when there is none (or the person cleared it). */
-    function get(id: string): Promise<KinoProgressEntry | null>;
-    /** Forgets the element. */
-    function clear(id: string): Promise<void>;
-    /**
-     * Your elements, the most recently set first. `limit` 1 to 100 (default 50); `sinceMs` a finite number >= 0 keeps only those
-     * set at or after that time (milliseconds since 1970). Finished elements are included (see `done`).
-     */
-    function list(options?: KinoProgressListOptions): Promise<KinoProgressEntry[]>;
-  }
-
-  /**
-   * apiVersion 20, the plugin protocol (the manifest's `consumes`): asks a door another plugin opens, through Kino. `alias` is a
-   * key of your `consumes`, `call` a name it lists, `arg` JSON (up to 64 KB) matching the call's `in`. Resolves to the answer
-   * validated against the call's `out`; rejects with an Error whose `code` is a [KinoProtocolErrorCode]: `provider_missing` (not
-   * installed, or 18+ while your plugin is not), `not_declared`, `bad_input`, `bad_output`, `rate_limited` (30 calls in any 10 s
-   * per provider door), `timeout` (10 s) or `provider_failed`. `arg` reaches the provider, which may send it to its own hosts. Usable wherever the other services are (`screen`, `screenEvent`...); rejects `not_allowed` in a background
-   * `job`. Declare the provider in `recommends` and offer `go.installPlugin` while it is missing. A stream is switched on with
-   * the state flag `state.protocol.<alias>.<stream> = true` and arrives as the screenEvent `protocol` ([KinoProtocolEventArg]).
-   * Feature-detect with `typeof kino.plugins === "object"`.
-   */
-  namespace plugins {
-    function call(alias: string, call: string, arg?: unknown): Promise<unknown>;
-  }
-
-  /**
    * apiVersion 14, capability "shared" (Task 8q-2; a plain consent line, not red): a small store of your plugin's, per profile,
    * that syncs between the person's own linked devices, both ways, last writer wins by a clock Kino assigns. Typical use: a `preferPhone`
    * job on the phone writes its result, the TV's screen reads it. Synchronous, like `kino.storage`; usable from screens, panels,
@@ -3932,26 +3005,6 @@ declare namespace kino {
    */
   namespace sync {
     function remoteChanged(): void;
-
-    /**
-     * Kino 0.9.78, additive, only for a plugin with the approved `syncProvider` capability (feature-detect with
-     * `typeof kino.sync.active === "function"`; an older Kino, and any other plugin, has neither this nor `setActive`): whether this
-     * plugin is the sync provider on THIS device now. Readable in any call.
-     */
-    function active(): Promise<boolean>;
-
-    /**
-     * Kino 0.9.78, additive, `syncProvider` only: turn this plugin on or off as THIS device's sync provider, so the person does it from
-     * your own screen instead of going to Ajustes. Resolves with whether the plugin is the provider afterwards.
-     * - `true` asks the person first, in Kino's own dialog (your installed name, Kino's words: you cannot change them); the current
-     *   provider is turned off. Declined: resolves `false` and nothing changes. Already on: resolves `true` and asks nothing.
-     * - `false` asks nothing and returns the person to Kino's local sync, only when this plugin is the one on.
-     * Only runs from a call the person started with a tap (a settings action, a panelAction, or a screenEvent after their own press),
-     * never from a job, a timer or a screen's `open`. Rejects with `{ code }`: `not_allowed` (not from a tap, or no `syncProvider`),
-     * `unavailable` (the plugin cannot be a provider now), `busy` (a question is already open), `timeout` (nobody answered in two
-     * minutes), `invalid_request` (not a boolean). Turn it on after the plugin's settings are saved: a provider with no key yet shows "not set up".
-     */
-    function setActive(on: boolean): Promise<boolean>;
   }
 
   /**
@@ -3966,14 +3019,6 @@ declare namespace kino {
     const names: readonly string[];
     const widgets: readonly string[];
     const version: number;
-    /**
-     * Kino 0.9.88, additive, no new apiVersion: `true` when this Kino draws a screen's
-     * pictures over http too (an `Image`'s `url`, a `heroCard`'s `image` and `logo`, a `CircleAvatar`'s `image`, a title's
-     * `poster` and `backdrop`), on a public host by a poster's rule (never the home network, a private IP address or a name
-     * without a dot), so an IPTV panel's http channel logos show. `undefined` on an older Kino, which keeps them https-only:
-     * there, send an https address or nothing. Their `headers` still go only with an https picture. The Node kit says `true`.
-     */
-    const httpImages: true | undefined;
   }
 
   /**
@@ -3995,7 +3040,7 @@ declare namespace kino {
     /**
      * apiVersion 6, with `"browser": "pages"` in the manifest (`true` is capture-only and answers `not_allowed` here; the
      * person approves "Puede abrir páginas web ocultas para mostrar contenido y
-     * encontrar el video", in red): from `search`, `home`, `browse`, `episodes`, `section`, `resolve` or `lyrics` (apiVersion 19: the lyrics the person opened; its 10 s call needs a `timeoutMs` of about 7000), only
+     * encontrar el video", in red): from `search`, `home`, `browse`, `episodes`, `section` or `resolve`, only
      * while the person is using the app (never a background call), loads `url` in the same hidden web view and returns its
      * HTML once the page is past the site's automatic browser check (Cloudflare's "Just a moment…") and matches `waitFor`.
      * Kino never clicks, taps, types or scrolls in it and never solves a captcha: a page that asks for a human answers
@@ -4205,51 +3250,6 @@ declare namespace kino {
      *   return { message: "Listo: el otro aparato ya entró" };
      */
     function scan(options?: { title?: string; titleEn?: string }): Promise<string | null>;
-  }
-
-  /**
-   * `kino.visualBrowser` (apiVersion 20, manifest `"visualBrowser": true`): a browser WINDOW THE PERSON SEES AND DRIVES, to sign in,
-   * solve a challenge or accept a site's terms. `kino.browser` is hidden and nobody can type in it; this is the same idea with a
-   * window. It exists only for a plugin whose manifest declares the key (otherwise `kino.visualBrowser` is undefined, as on a Kino
-   * before it: write `kino.visualBrowser?.available`), and `available` is false on the desktop and on a device without a WebView (a TV has one: it works there with the remote, experimental, and a page with pointer-only controls may be hard to reach): keep your other way
-   * (pasting the cookies into a `password` setting, say).
-   *
-   * What the person sees: Kino's own sheet first, EVERY time, naming your plugin, the sites (your manifest `hosts`), the cookie
-   * NAMES you asked for, whether the window will identify itself as a regular browser or with your own string, and whether Kino
-   * keeps the cookies itself; only after Continuar does the window open. The window has Kino's bar (your plugin's name and your
-   * `title`, the site's host with a lock, Cerrar, and Listo when you gave no `doneWhen`). You cannot change the bar.
-   *
-   * Rules: only from the person's own press -- a settings `action`, a `panelAction` or a `screenEvent` that follows the person's
-   * tap or submit (the scanner's gate: `kino.qr.scan` above); from anything else (a search, Home, a timer, a job, a screen's
-   * open or load-more, a background call) it throws `"forbidden"`. The first address and every page the window moves to must be
-   * https, on the default port, on a host of your manifest `hosts` (wildcards as there; a sign-in that goes through
-   * `accounts.google.com` needs it declared); anything else is stopped and Kino says so on the window. Never the local network.
-   * One window at a time in the whole app. No script of yours runs in the page, you never see what is typed, and the page cannot
-   * open pop-ups, download, pick files or use the camera, microphone or location. The window starts with the cookies of your hosts
-   * cleared and clears them again when it closes (Android keeps one cookie jar for the app: a cookie scoped to another path than
-   * `/` survives, and your own `kino.fetch` jar is separate). A window the person leaves in the background closes after a
-   * minute.
-   *
-   * Throws a typed error: `"bad_args"` (the options are wrong: fix the call), `"forbidden"`, `"unavailable"` (a TV, or no screen
-   * to show it on), `"busy"` (a window is already open: yours or another plugin's) and `"store_failed"` (`storeAs` and the text
-   * does not fit the setting). Saying No to the sheet, Cerrar and Back are not errors: you get `{ status: "closed" }`.
-   * @example
-   *   // In action("link"): the person pressed "Vincular cuenta" in your settings.
-   *   if (!kino.visualBrowser?.available) return { message: "Pega tus cookies en los ajustes" };
-   *   const r = await kino.visualBrowser.open({
-   *     url: "https://accounts.google.com/ServiceLogin?continue=https%3A%2F%2Fmusic.youtube.com",
-   *     title: "YouTube Music",
-   *     doneWhen: { cookies: ["SAPISID"] },
-   *     collect: { cookies: ["SID", "HSID", "SSID", "APISID", "SAPISID"], storeAs: { setting: "cookieHeader", format: "header" } },
-   *     userAgent: "browser",
-   *   });
-   *   if (r.status !== "done" || !r.stored) return { message: "No se vinculó la cuenta" };
-   *   return { message: "Cuenta vinculada" }; // r.storedNames lists the cookies Kino kept; you never saw their values
-   */
-  namespace visualBrowser {
-    /** True on a phone or tablet running a Kino with the capability; false on a TV and on the desktop. */
-    const available: boolean;
-    function open(options: KinoVisualBrowserOptions): Promise<KinoVisualBrowserResult>;
   }
 
   namespace cookies {
