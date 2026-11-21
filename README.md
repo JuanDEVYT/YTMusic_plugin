@@ -4,6 +4,11 @@
 
 Plugin de música para Kino (apiVersion 19, Kino 0.9.81 o superior): busca, explora una sección propia, abre álbumes y listas, y reproduce el audio de YouTube Music. Con tu sesión, también ves tus **Me gusta** y **tus listas**.
 
+## Novedades de la 0.6.7
+
+- **Arreglado el inicio de sesión con Google**: la ventana de vinculación se cerraba en cuanto aparecía `SAPISID`, a mitad de la cadena de redirección de Google, y solo coleccionaba 9 cookies. YouTube Music contesta como invitado a un juego sin `NID`, `SIDCC` y las `*PSIDTS`, y por eso salía «YouTube no reconoce esta sesión». Ahora la ventana se cierra cuando la cadena termina en YouTube Music (`doneWhen.urlMatches`) y se piden también `NID`, `SIDCC`, `__Secure-1PSIDCC` y `__Secure-3PSIDCC` (18 cookies en total).
+- **Aviso de sesión incompleta**: si la sesión guardada no la reconoce, la tarjeta de cuenta lo dice y ofrece cerrar sesión para vincular otra vez.
+
 ## Novedades de la 0.6.6
 
 - **Una sola barra compacta**: el `AppBar` usa `mergeWithKinoBar: true` + `dense: true`, así la barra del plugin se funde con la de Kino (nuestro `leading` donde estaba Cerrar, nuestro título donde estaba el nombre) en vez de apilar dos barras.
@@ -75,13 +80,13 @@ Google no permite iniciar sesión con usuario y contraseña desde un plugin, as�
 
 ```js
 const s = `PEGA_AQUÍ_LA_COOKIE`;
-const keep = ["SID","__Secure-1PSID","__Secure-3PSID","HSID","SSID","APISID","SAPISID","__Secure-1PAPISID","__Secure-3PAPISID","__Secure-1PSIDTS","__Secure-3PSIDTS","LOGIN_INFO","VISITOR_INFO1_LIVE"];
+const keep = ["SID","__Secure-1PSID","__Secure-3PSID","HSID","SSID","APISID","SAPISID","__Secure-1PAPISID","__Secure-3PAPISID","__Secure-1PSIDTS","__Secure-3PSIDTS","SIDCC","__Secure-1PSIDCC","__Secure-3PSIDCC","NID"];
 const t = s.split(/;\s*/).filter(p => keep.includes(p.split("=")[0])).join("; ");
 [t.slice(0,500), t.slice(500,1000), t.slice(1000,1500), t.slice(1500,2000)].forEach((x,i)=>console.log(`Parte ${i+1}:\n${x}`));
 console.log("Total:", t.length);
 ```
 
-4. En Kino: Ajustes > YouTube Music, pega las partes (las que salgan) y guarda. Kino comprueba la sesión antes de guardar. Si "Total" pasa de 2000, quita las cookies opcionales (`LOGIN_INFO`, `VISITOR_INFO1_LIVE`, las `PSIDTS`).
+4. En Kino: Ajustes > YouTube Music, pega las partes (las que salen) y guarda. Kino comprueba la sesión antes de guardar. Si "Total" pasa de 2000, quita `NID` y los `*PSIDCC`; nunca quites los `*PSIDTS`: sin ellos YouTube Music te trata como invitado.
 
 Las cookies equivalen a tu sesión de Google: no las compartas. Se guardan cifradas en el aparato y el plugin solo puede hablar con `music.youtube.com`, `www.youtube.com` y `*.googlevideo.com`. "Cerrar sesión" las borra de todos tus aparatos.
 

@@ -10,7 +10,7 @@ const API = "https://music.youtube.com/youtubei/v1/";
 const ORIGIN = "https://music.youtube.com";
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
-const VERSION = "0.6.6";
+const VERSION = "0.6.7";
 // Cada ajuste "password" admite 500 caracteres como máximo (límite de Kino): por eso 4 partes = 2000.
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC", "cookieD"];
 
@@ -18,6 +18,14 @@ const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC", "cookieD"];
 // vista en kino.storage; al volver a cambiar de versión (la clave ya no coincide) vuelven a salir.
 const WHATS_NEW_KEY = "whatsNewSeen";
 const CHANGELOG = [
+  {
+    es: "Arreglado el inicio de sesión con Google: la ventana ya no se cerraba a mitad del inicio de sesión y ahora recoge todas las cookies (NID, SIDCC y las *PSIDTS) que YouTube Music exige; sin ellas Google respondía como invitado y decía «no se reconoció la sesión».",
+    en: "Google sign-in fixed: the window no longer closes in the middle of signing in and now collects every cookie YouTube Music needs (NID, SIDCC and the *PSIDTS); without them Google answered as a guest and said the session was not recognised."
+  },
+  {
+    es: "Si la sesión guardada llegó incompleta, la tarjeta de cuenta lo avisa y ofrece cerrar sesión para vincular otra vez.",
+    en: "If the saved session arrived incomplete, the account card says so and offers to log out and link again."
+  },
   {
     es: "Una sola barra compacta: la barra del plugin se funde con la de Kino (mergeWithKinoBar + dense) en vez de apilar dos.",
     en: "One compact bar: the plugin's bar merges with Kino's (mergeWithKinoBar + dense) instead of stacking two."
@@ -593,12 +601,15 @@ function accountOptionsNode() {
   };
 }
 
-// The cookies YouTube Music needs to treat the person as themselves (not a guest): the session ones plus LOGIN_INFO and the
-// visitor ones. Kino writes them as one header cut across cookieA..cookieD (500 characters each), which joinCookie() joins again.
+// The cookies YouTube Music needs to treat the person as themselves (not a guest): the session ones plus the security and
+// token ones (NID, SIDCC and the *PSIDTS that Google only writes at the END of the sign-in chain: without them youtubei
+// answers guest content and the account reads "NOT recognised"). Kino writes them as one header cut across cookieA..cookieD
+// (500 characters each), which joinCookie() joins again. 18 names, about 1,100 characters: inside 4 x 500.
 const LINK_COOKIES = [
   "SID", "HSID", "SSID", "APISID", "SAPISID",
   "__Secure-1PSID", "__Secure-3PSID", "__Secure-1PAPISID", "__Secure-3PAPISID",
-  "__Secure-1PSIDTS", "__Secure-3PSIDTS", "LOGIN_INFO", "VISITOR_INFO1_LIVE", "YSC"
+  "__Secure-1PSIDTS", "__Secure-3PSIDTS", "SIDCC", "__Secure-1PSIDCC", "__Secure-3PSIDCC", "NID",
+  "LOGIN_INFO", "VISITOR_INFO1_LIVE", "YSC"
 ];
 
 // Asks YouTube Music who the saved cookies are: a session it does not recognise answers 200 with guest content, so the 200 alone
@@ -2606,7 +2617,14 @@ export async function screen({ state, route, device, size, lang, installed }) {
             labelText: "Cerrar sesión",
             labelTextEn: "Log out",
             onPressed: "logout_session"
-          }
+          },
+          ...(sessionBad ? [{
+            type: "Text",
+            key: "acc_relink_hint",
+            text: "Esta sesión llegó incompleta: cierra sesión y vincula otra vez. La ventana debe llegar a YouTube Music antes de cerrarse.",
+            textEn: "This session arrived incomplete: log out and link again. The window must reach YouTube Music before it closes.",
+            color: "muted"
+          }] : [])
         ] : [accountOptionsNode()])
       ]
     });
@@ -3141,13 +3159,17 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
       url: "https://accounts.google.com/ServiceLogin?service=youtube&continue=" + encodeURIComponent("https://music.youtube.com/"),
       title: "YouTube Music",
       userAgent: "browser",
-      doneWhen: { cookies: ["SAPISID"] },
+      // NOT `cookies: ["SAPISID"]`: SAPISID lands in the middle of Google's redirect chain, so the window used to close there
+      // and collect only the 9 session cookies (no *PSIDTS, no SIDCC, no NID) — a set YouTube Music answers as a guest. The
+      // window now closes when the chain is over and the person is on YouTube Music, which is when every cookie exists.
+      doneWhen: { urlMatches: "*music.youtube.com*" },
       collect: { cookies: LINK_COOKIES, storeAs: { setting: "cookieA", spill: ["cookieB", "cookieC", "cookieD"], format: "header", thenEvent: "account_linked" } },
       timeoutMs: 600000
     });
     // Kino writes the cookies once this call ends; linkedNow shows the linked state at once, until the setting is read.
     if (r.status === "done" && r.stored) return { state: Object.assign({}, s, { linkedNow: true, sessionOff: false }), toast: "Cuenta vinculada" };
-    return { state: s, toast: r.status === "closed" ? "No se vinculó la cuenta" : "No se pudo vincular la cuenta" };
+    if (r.status === "timeout") return { state: s, toast: "La ventana no llegó a YouTube Music. Ciérrala, inicia sesión y vuelve a intentar." };
+    return { state: s, toast: r.status === "closed" ? "No se vinculó la cuenta: espera a que la ventana abra YouTube Music" : "No se pudo vincular la cuenta" };
   }
 
   if (name === "toggle_8d_setting") {
