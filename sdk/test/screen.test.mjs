@@ -18,6 +18,15 @@ const run = join(here, "..", "run.mjs");
 const demo = join(here, "screen-demo");
 /** Every title's poster in [n], in tree order (the shared table's optional summary.posters). */
 const posters = (n) => [...titleItems(n).map((i) => i.poster), ...childNodes(n).flatMap(posters)];
+/**
+ * Every picture [n] draws, as "<node type>.<field>=<address>", in tree order, empty ones left out (the shared table's optional
+ * summary.pictures): an image's url, a heroCard's image and logo, an avatar's image, each title's poster and backdrop.
+ */
+const pictures = (n) => {
+  const own = n.type === "image" ? [["url", n.url]] : n.type === "heroCard" ? [["image", n.image], ["logo", n.logo]] : n.type === "avatar" ? [["image", n.image]] : [];
+  const titles = titleItems(n).flatMap((i) => [["poster", i.poster], ["backdrop", i.backdrop]]);
+  return [...[...own, ...titles].filter(([, u]) => u).map(([f, u]) => `${n.type}.${f}=${u}`), ...childNodes(n).flatMap(pictures)];
+};
 const cases = JSON.parse(readFileSync(join(here, "screen-cases.json"), "utf8"));
 /** Every bound field's setting key by field key, in tree order (the shared table's optional summary.binds). */
 const binds = (n) => Object.assign(n.field?.bind ? { [n.key]: n.field.bind } : {}, ...childNodes(n).map(binds));
@@ -303,6 +312,7 @@ const task17Node = {
   scaffold: (x) => ({ scaffold: { appBar: x.appBar ? x.appBar.key : null, body: x.body ? x.body.type : null, fab: x.fab ? x.fab.key : null, bottomBar: x.bottomBar ? x.bottomBar.key : null } }),
   appBar: (x) => ({ appBar: { title: x.title, leading: x.leading ? x.leading.key : null, actions: x.actions.length, bottom: x.bottom ? x.bottom.type : null, centerTitle: x.centerTitle, background: x.background, ...(x.titleNode ? { titleNode: x.titleNode.type } : {}) } }),
   navigationBar: (x) => ({ nav: { items: x.items.map((i) => i.key), value: x.value, onChange: x.onChange?.event?.name ?? null } }),
+  pages: (x) => ({ pagesNode: { pages: x.pages.length, page: x.page, onPageChanged: x.onPageChanged?.event?.name ?? null } }),
   pageView: (x) => ({ pager: { pages: x.pages.length, initialPage: x.initialPage, autoPlayMs: x.autoPlayMs, viewportFraction: x.viewportFraction, padEnds: x.padEnds, onPageChanged: x.onPageChanged?.event?.name ?? null } }),
 };
 
@@ -450,6 +460,7 @@ test("screen-cases.json: the kit gives the app's verdicts and log lines", () => 
         assert.deepEqual(got, summary.onClose, c.name);
       }
       if (summary.posters !== undefined) assert.deepEqual(r.tree ? posters(r.tree) : [], summary.posters, c.name);
+      if (summary.pictures !== undefined) assert.deepEqual(r.tree ? pictures(r.tree) : [], summary.pictures, c.name);
       if (summary.every !== undefined) assert.deepEqual(r.every, summary.every, c.name);
       // Task 14: the result's layout, and every list's stickToBottom per width class.
       if (summary.layout !== undefined) assert.equal(r.layout, summary.layout, c.name);
@@ -547,6 +558,12 @@ test("text style: h1 to h5 and p parse, the old names alias to them, an unknown 
   assert.deepEqual(r.tree.children.map((c) => c.variant), ["h1", "h2", "h3", "h4", "h5", "p", "h1", "h3", "h4", "p", "caption", "label", "p"]);
   assert.equal(r.dropped.length, 1);
   assert.equal(checkScreenTree({ type: "text", text: "x" }).tree.variant, "p");
+});
+
+test("text style: hero is above h1 and parses as its own variant", () => {
+  const r = checkScreenTree({ type: "col", children: ["hero", "display"].map((style) => ({ type: "text", text: "x", style })) });
+  assert.deepEqual(r.tree.children.map((c) => c.variant), ["hero", "h1"]);
+  assert.equal(r.dropped.length, 0);
 });
 
 test("text bold is a boolean and the colour a role: bold parses, hex is dropped, onPrimary on a surface falls back", () => {
@@ -703,14 +720,14 @@ test("run.mjs screen --raw prints the plugin's answer untouched", () => {
 
 test("fakeScreenContext: the shape screen(context) gets, overrides merged", () => {
   const c = fakeScreenContext({ device: "tv" });
-  assert.deepEqual(Object.keys(c).sort(), ["device", "lang", "route", "size", "state"]);
+  assert.deepEqual(Object.keys(c).sort(), ["activeTheme", "device", "installed", "lang", "route", "size", "state"]);
   assert.equal(c.device, "tv");
   assert.deepEqual(c.state.inputs, {});
   // The shapes PluginScreenSession sends (PluginScreenSessionTest pins the app side).
   assert.deepEqual(c.route, { name: "main", params: {} });
   assert.deepEqual(c.size, { widthClass: "compact", heightClass: "medium", orientation: "portrait" });
   assert.equal(c.lang, "es");
-  assert.deepEqual(Object.keys(fakeScreenEvent("open")).sort(), ["device", "lang", "name", "route", "state"]);
+  assert.deepEqual(Object.keys(fakeScreenEvent("open")).sort(), ["activeTheme", "device", "installed", "lang", "name", "route", "state"]);
 });
 
 // ---------- kino.screen ----------
@@ -720,6 +737,62 @@ test("kino.screen reports the widgets Kino draws (the contract's list) and versi
   assert.deepEqual([...kino.screen.widgets], contract.manifest.screen.widgets);
   assert.equal(kino.screen.version, 1);
   assert.ok(Object.isFrozen(kino.screen));
+});
+
+test("kino.screen.httpImages: the feature flag of http pictures on a screen, additive (no new apiVersion), pinned in the contract", () => {
+  const H = contract.manifest.screen.httpImages;
+  assert.equal(H.flag, "httpImages");
+  assert.equal(H.featureDetect, "kino.screen.httpImages === true");
+  assert.deepEqual(H.schemes, ["https", "http"]);
+  assert.equal(contract.additiveFromApp["kino.screen.httpImages"], "0.9.88");
+  assert.deepEqual(Object.keys(H.nodes), ["image", "heroCard", "avatar", "titleCard", "titleRail", "titleGrid"]);
+  for (const w of Object.keys(H.nodes)) assert.ok(contract.manifest.screen.widgets.includes(w), w);
+  // On every plugin level that has a screen, and read-only like the rest of kino.screen.
+  for (const apiVersion of [14, contract.maxApiVersion]) {
+    const { kino } = createKino({ id: "x", capabilities: ["screen"], hosts: [], settings: [], apiVersion });
+    assert.equal(kino.screen.httpImages, true);
+    // The contract's featureDetect, evaluated as a plugin would.
+    assert.equal(new Function("kino", `return ${H.featureDetect};`)(kino), true);
+  }
+  // An older Kino's kino.screen has no flag: the same check is false there.
+  assert.equal(new Function("kino", `return ${H.featureDetect};`)({ screen: { widgets: [], names: [], version: 1 } }), false);
+});
+
+test("http pictures: every picture node keeps http on a public host, drops it off the public internet, https unchanged; headers stay https-only", () => {
+  const read = (node) => checkScreenTree(node);
+  const kept = read({ type: "col", children: [
+    { type: "Image", url: "http://img.example.com/a.jpg", headers: { Referer: "https://img.example.com/", "User-Agent": "UA" } },
+    { type: "Image", url: "https://img.example.com/a.jpg", headers: { Referer: "https://img.example.com/", "User-Agent": "UA" } },
+    { type: "heroCard", title: "T", image: "http://img.example.com/h.jpg", logo: "http://img.example.com/l.png" },
+    { type: "CircleAvatar", image: "http://img.example.com/me.jpg" },
+    { type: "titleCard", item: { id: "a", ref: "r", title: "A", kind: "live", poster: "http://img.example.com/p.png", backdrop: "http://img.example.com/b.jpg" } },
+  ] });
+  const [httpImg, httpsImg, hero, avatar, card] = kept.tree.children;
+  assert.equal(httpImg.url, "http://img.example.com/a.jpg");
+  assert.deepEqual(httpImg.headers, {}, "an http picture never takes the image's headers");
+  assert.equal(httpsImg.url, "https://img.example.com/a.jpg");
+  assert.deepEqual(httpsImg.headers, { Referer: "https://img.example.com/", "User-Agent": "UA" });
+  assert.equal(hero.image, "http://img.example.com/h.jpg");
+  assert.equal(hero.logo, "http://img.example.com/l.png");
+  assert.equal(avatar.image, "http://img.example.com/me.jpg");
+  assert.equal(card.item.poster, "http://img.example.com/p.png");
+  assert.equal(card.item.backdrop, "http://img.example.com/b.jpg");
+  assert.deepEqual(kept.dropped, ["screen: image headers without an https url, ignored"]);
+  for (const bad of ["http://192.168.1.4/a.jpg", "http://10.0.0.2/a.jpg", "http://172.16.0.1/a.jpg", "http://127.0.0.1/a.jpg", "http://localhost/a.jpg", "http://nas.local/a.jpg", "http://router/a.jpg", "ftp://img.example.com/a.jpg"]) {
+    const r = read({ type: "col", children: [
+      { type: "Image", url: bad },
+      { type: "heroCard", title: "T", image: bad, logo: bad },
+      { type: "CircleAvatar", image: bad, text: "AB" },
+      { type: "titleCard", item: { id: "a", ref: "r", title: "A", kind: "movie", poster: bad, backdrop: bad } },
+    ] });
+    const [hero2, avatar2, card2] = r.tree.children;
+    assert.equal(r.tree.children.length, 3, bad);
+    assert.equal(hero2.image, null, bad);
+    assert.equal(hero2.logo, null, bad);
+    assert.equal(avatar2.image, "", bad);
+    assert.equal(card2.item.poster, "", bad);
+    assert.equal(card2.item.backdrop, "", bad);
+  }
 });
 
 // ---------- the manifest ----------

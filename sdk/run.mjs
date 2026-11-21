@@ -21,6 +21,10 @@
 //   node sdk/run.mjs <plugin dir> live guide <id,id>
 //   node sdk/run.mjs <plugin dir> live search <query>     (the optional liveSearch export)
 //   node sdk/run.mjs live playlist <url|file> [--epg <url|file>]   (any M3U list, no plugin needed)
+// A plugin store (apiVersion 15, the "pluginStore" capability; the answers are checked as Kino's index keeps them):
+//   node sdk/run.mjs <plugin dir> storeSync [--since <ms>] [--state '<json>']   (every store)
+//   node sdk/run.mjs <plugin dir> storeList [popular|recent] [category]         (a live store: "pluginStore": { "mode": "live" })
+//   node sdk/run.mjs <plugin dir> storeSearch "<q>" [category]                  (a live store)
 // Your own section, categories and colors (apiVersion 6; no capability, the manifest decides):
 //   node sdk/run.mjs <plugin dir> section [tab]     needs "section" in the manifest
 //   node sdk/run.mjs <plugin dir> categories        needs apiVersion 6 and the browse capability
@@ -37,6 +41,9 @@
 //   node sdk/run.mjs <plugin dir> segments tt0133093 [durationMs]                 (a movie)
 //   node sdk/run.mjs <plugin dir> segments tmdb:1396 1 2 [durationMs]             (an episode: the SHOW's id, season, episode)
 //   node sdk/run.mjs <plugin dir> segments '{"kind":"episode","ids":{"tmdb":62085},"show":{"ids":{"tmdb":1396}},"season":1,"episode":2,"durationMs":2880000}'
+// Lyrics (apiVersion 19, the "lyrics" capability): the query as the app builds it, then what Kino keeps and would draw
+//   node sdk/run.mjs <plugin dir> lyrics "Title" "Artist" ["Album"] [durationMs]
+//   node sdk/run.mjs <plugin dir> lyrics '{"title":"Song","artist":"Artist","durationMs":215000,"ids":{"youtube":"dQw4w9WgXcQ"}}'
 // The player panel (apiVersion 9): the fake context is a movie 10 min in on a TV; --context '<json>' merges over it
 //   node sdk/run.mjs [--context '<json>'] <plugin dir> panel <ref> [tab]
 //   node sdk/run.mjs [--context '<json>'] <plugin dir> panelAction <ref> <key> <press|change|submit|tab|open> ['<value json>'] ['<values json>']
@@ -64,8 +71,29 @@
 //   the export (the first call of a real session is the reserved event `open`) and prints the validated answer. --trigger
 //   says what set the event off in the app (tap by default, change, submit): a tap or submit is the person's press (what
 //   kino.qr.scan needs); a change is not, and its go.titleByIds / go.url is dropped
-//   node sdk/run.mjs [--context '<json>'] [--state '<json>'] <plugin dir> screen
+//   Both calls get `installed` (Kino 0.9.81): one key per entry of the manifest's "recommends", all false; mark some installed with
+//   --context '{"installed":{"owner/name":true}}' (only declared repos: Kino tells a plugin about no other)
+//   node sdk/run.mjs [--context '<json>'] [--state '<json>'] [--lang es|en] <plugin dir> screen
 //   node sdk/run.mjs [--context '<json>'] [--state '<json>'] <plugin dir> screenEvent <name> [arg] ['<value json>'] [--trigger tap|change|submit]
+//   --lang en is --context '{"lang":"en"}': the English texts (textEn, labelTextEn...) as Kino in English draws them.
+// The plugin protocol (apiVersion 20): a consumer's kino.plugins.call is answered by a provider folder (--provider), and a
+//   provider is tried on its own with `proto`, through the same checks as the app (its argument against "in", strictly; its
+//   answer against "out"; the error codes). A stream's argument is the cursor of its last answer (null the first time):
+//   node sdk/run.mjs --context '{"installed":{"owner/name":true}}' --provider <provider dir> <consumer dir> screen
+//   node sdk/run.mjs --provider <provider dir> <consumer dir> screenEvent <name>
+//   node sdk/run.mjs --provider <provider dir> [--cursor '<json>'] <consumer dir> screenEvent protocol <alias>.<stream>
+//   node sdk/run.mjs <provider dir> proto <door>.<call> ['<arg json>']
+//   node sdk/run.mjs <provider dir> proto <door>.<stream> ['<cursor json>']
+//   A provider's export gets (arg, ctx), ctx.caller = { id, repo, name, adult } of the consumer: with a consumer folder, its
+//   manifest's id and name and its git origin as repo; --repo <owner/name> sets the repo (proto has no consumer folder).
+// The player slot (apiVersion 23, the "playerSlot" capability): playerSlot calls the export with the title's own plugin's panel
+//   context plus live: false and prints what Kino keeps of the answer (the frame: items in declared order, refreshMs clamped);
+//   playerSlotAction <ref> <button id> calls it with { id, context } and prints the request Kino acts on ({ openPanel, player }
+//   after the same reader and press rules as a panel's player). The ref is "-" with --live-channel or --bare. --foreign <id>[:<name>]
+//   gives the context of a title another plugin owns, --live-channel <provider>:<code>[:<name>] an En vivo channel's, --bare
+//   the one a private title gets (live, foreign, device, lang, features: no kind), with --live-channel for a live one.
+//   node sdk/run.mjs [--context '<json>'] <plugin dir> playerSlot [ref]
+//   node sdk/run.mjs [--context '<json>'] <plugin dir> playerSlotAction <ref> <button id>
 // Describing other titles (apiVersion 6, the "meta" capability): the query as the app builds it, Kino's verdict field by
 // field, and how the info page would use it (within the app's 6 s)
 //   node sdk/run.mjs <plugin dir> meta tt0133093 [movie|series]          (KINO_LANG=es: the person's language)
@@ -90,6 +118,7 @@
 //   KINO_AI_REVOKED=1               the person switched it off: every ask is refused
 // kino.identity.telegram (apiVersion 15, capability "identity", contract.kinoIdentity) answers a fake Telegram account with the
 //   app's gates (only inside screen / screenEvent / panelAction, never a tick or a job): { id (a per-plugin pseudonym), token },
+//   the token whatever the author, like a debug build of Kino (a release Kino gives it only to contract.kinoIdentity.tokenAuthors),
 //   and with { challenge } also deviceKey, author, codeHash (SHA-256 of the entry the kit runs) and signature (a per-plugin P-256 key):
 //   KINO_IDENTITY_TG=<id>|none      the account (default 1000001); none: not_available
 //   KINO_IDENTITY_TOKEN=<token>     the gate token handed over (default a fake one)
@@ -112,33 +141,44 @@
 //                          conflict:1:409 also passes the origin's HTTP status (401, 403 or 409)
 //   --live                 resolve only: the ref is a live channel's (liveStreamHosts "any" applies)
 //   --within <browse ref>  search only: Kino's scoped search ({ q, type: "any", within, cursor }); null = "can't search there"
+//   --provider <folder>    a plugin of the plugin protocol (apiVersion 20) that answers the consumer's kino.plugins.call: its
+//                          `provides` door is served by the folder's proto_<door>_<call> exports, through the app's validation (repeatable).
+//                          `screenEvent protocol <alias>.<stream>` then polls that stream once and sends { alias, stream, items }.
+//   --repo <owner/name>    the repo ctx.caller.repo tells a provider (default: the consumer folder's git origin, else null)
+//   --cursor '<json>'      screenEvent protocol only: poll the stream from this cursor instead of null (try repeated items)
+//   --lang es|en           the person's language in a screen's or panel's context (default es)
 //   --device tv|phone      what kino.device says (default KINO_DEVICE, else phone): test the TV side of your plugin
 // The first argument is the plugin's entry file or the folder that holds kino-plugin.json. The
 // result goes to stdout as JSON; everything else (kino.log, console.*, dropped entries, errors)
 // goes to stderr.
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { checkOutput, checkSettingsOutput, contract, featureApiVersion, liveChannelGoOf, liveChannelGoRefusal, markSearchHits, maskSetPasswords, readRangeProblem, segmentSkip, validateManifest } from "./contract.mjs";
+import { parseSlotFrame, slotActionRequest, slotBareContext, slotContext, slotForeignContext, slotLiveContext } from "./slot.mjs";
+import { checkOutput, checkSettingsOutput, contract, featureApiVersion, liveChannelGoOf, liveChannelGoRefusal, syncProviderGoRefusal, markSearchHits, maskSetPasswords, prepareNote, prepareWarnings, readRangeProblem, segmentSkip, STORE_FUNCTIONS, validateManifest } from "./contract.mjs";
 import { contrast, formatRatio, resolvePalette } from "./palette.mjs";
 import { askImage, askRead, createKino, errorReport, signingLane } from "./kino-shim.mjs";
 import { loadPlugin, missingGlobalLines, scanMissingGlobals } from "./sandbox.mjs";
+import { execFileSync } from "node:child_process";
+import { callerOf, createProtocolCaller, KIT_CALLER, protocolBlocks } from "./protocol.mjs";
 import { kitScreenCall } from "./kit-call.mjs";
 import { actionEvent, checkPanelOutput, contributesLive, contributesPanel, fakeContext, foreignAnswerDrops, foreignContext, foreignEventDetail, gatePlayer, langOf, liveAnswerDrops, liveContext, panelPlayerOf, PLAYER_EVENTS, playerNotice, siftPlayer, TRIGGERS } from "./panel.mjs";
 import { answerFields, checkPanelScreen, checkPanelScreenAnswer, checkScreenAnswer, checkScreenTree, fakePanelScreenContext, fakeScreenContext, fakeScreenEvent, isPanelScreen, LIMITS as SCREEN_LIMITS, PANEL_SCREEN, panelAnswerFields, printScreenTree } from "./screen.mjs";
 import { channelLines, download, guideFor, keepStart, loadPlaylist, summarisePlaylist, summaryLines } from "./live-playlist.mjs";
-import { jobBudget, jobContext, jobKino, runJob } from "./job.mjs";
+import { jobBudget, jobCaps, jobContext, jobKino, runJob } from "./job.mjs";
 import { createSharedDevices } from "./shared.mjs";
 
-const FUNCTIONS = ["search", "home", "browse", "episodes", "resolve", "migrate", "section", "categories", "subtitles", "track", "segments", "meta"];
+const FUNCTIONS = ["search", "home", "browse", "episodes", "resolve", contract.prepare.export, "migrate", "section", "categories", "subtitles", "track", "segments", "lyrics", "meta"];
 // apiVersion 6's settings form: not capabilities, so no capability check; the app runs them even before a required setting is typed.
 const SETTINGS_FUNCTIONS = ["settingsStatus", "action", "validateSettings"];
 // apiVersion 9's player panel: not capabilities either (the manifest's "panel" decides), and Kino calls them with a context.
 const PANEL_FUNCTIONS = ["panel", "panelAction", "playerEvent"];
 // apiVersion 14's screen canvas: the manifest's "screen" block decides, and Kino calls them with a context or an event.
 const SCREEN_FUNCTIONS = ["screen", "screenEvent"];
+// apiVersion 23's player slot: the manifest's "slot" block decides, and Kino calls them with a context.
+const SLOT_FUNCTIONS = [contract.playerSlot.exports.slot, contract.playerSlot.exports.action];
 /** What set off a screen event in the app (ScreenEventKind): the person's tap, a field's change, or a submit. */
 export const SCREEN_EVENT_TRIGGERS = ["tap", "change", "submit"];
 
@@ -151,23 +191,30 @@ export function screenEventIsPress(name, trigger = "tap") {
 }
 // `live <sub>` names one of the channels capability's exports.
 const LIVE = { categories: "liveCategories", channels: "liveChannels", guide: "guide", search: "liveSearch" };
-const USAGE = "usage: node sdk/run.mjs [--config k=v] [--record f | --replay f] [--raw] [--device tv|phone] <plugin.js | plugin folder> <search|home|browse|episodes|resolve|migrate|sign> [argument] [cursor]\n"
+const USAGE = "usage: node sdk/run.mjs [--config k=v] [--record f | --replay f] [--raw] [--device tv|phone] <plugin.js | plugin folder> <search|home|browse|episodes|resolve|prepare|migrate|sign> [argument] [cursor]\n"
   + "       node sdk/run.mjs [--config k=v] [--raw] <plugin folder> <section [tab] | categories | theme>\n"
   + "       node sdk/run.mjs [--config k=v] [--raw] <plugin folder> <settingsStatus | action <key> | validateSettings '<json>'>\n"
   + "       node sdk/run.mjs [--config k=v] <plugin folder> live <categories | channels <categoryId> [cursor] | guide <id,id> | search <query>>\n"
   + "       node sdk/run.mjs [--config k=v] <plugin folder> subtitles <ttID | tmdb:ID | JSON> [season episode]\n"
   + "       node sdk/run.mjs [--config k=v] <plugin folder> track <start|progress|stop|watched> [JSON]\n"
   + "       node sdk/run.mjs [--config k=v] <plugin folder> segments <ttID [durationMs] | tmdb:ID season episode [durationMs] | JSON>\n"
+  + "       node sdk/run.mjs [--config k=v] <plugin folder> lyrics <title artist [album] [durationMs] | JSON>\n"
   + "       node sdk/run.mjs [--config k=v] [--raw] <plugin folder> meta <ttID | tmdb:ID | kitsu:ID | mal:ID | anilist:ID | JSON> [movie|series] [more ids] [lang=xx] [id=<source id>]\n"
   + "       node sdk/run.mjs [--context '<json>'] <plugin folder> <panel <ref> [tab] | panelAction <ref> <key> <press|change|submit|tab|open> ['<value json>'] ['<values json>'] | playerEvent <ref> <type> ['<detail json>']>\n"
   + "       node sdk/run.mjs [--context '<json>'] [--state '<json>'] --screen <plugin folder> panelAction <ref> <name> <press|change|submit> ['<value json>'] ['<arg>']\n"
   + "       node sdk/run.mjs --foreign <source plugin id>[:<name>] <plugin folder> <panel | panelAction | playerEvent> <ref> ...\n"
   + "       node sdk/run.mjs --live-channel <provider>:<code>[:<name>] <plugin folder> <panel | panelAction> - ...\n"
-  + "       node sdk/run.mjs [--context '<json>'] [--state '<json>'] <plugin folder> <screen | screenEvent <name> [arg] ['<value json>'] [--trigger tap|change|submit]>\n"
+  + "       node sdk/run.mjs [--context '<json>'] [--state '<json>'] [--lang es|en] <plugin folder> <screen | screenEvent <name> [arg] ['<value json>'] [--trigger tap|change|submit]>\n"
+  + "         (screen and screenEvent get `installed`, one key per \"recommends\" entry, all false: --context '{\"installed\":{\"owner/name\":true}}')\n"
+  + "       node sdk/run.mjs [--context '<json>'] [--state '<json>'] --provider <folder> <consumer folder> <screen | screenEvent <name> ...>   (plugin protocol: the provider answers kino.plugins.call)\n"
+  + "       node sdk/run.mjs [--state '<json>'] --provider <folder> [--cursor '<json>'] <consumer folder> screenEvent protocol <alias>.<stream>   (one poll of the stream, from null or the cursor)\n"
+  + "       node sdk/run.mjs <provider folder> <proto <door>.<call> ['<arg json>'] | proto <door>.<stream> ['<cursor json>']>   (a provider on its own, with the app's checks and error codes)\n"
+  + "       node sdk/run.mjs [--context '<json>'] [--foreign <id>[:<name>] | --live-channel <provider>:<code>[:<name>]] [--bare] <plugin folder> <playerSlot [ref] | playerSlotAction <ref> <button id>>\n"
   + "       node sdk/run.mjs [--size <bytes>] <plugin folder> read <handle> <offset> <length>   (byteSource: one range, as Kino's proxy asks it)\n"
   + "       node sdk/run.mjs [--out <file>] <plugin folder> image <handle>   (imageSource: the picture, written to a file)\n"
   + "       node sdk/run.mjs [--context '<json>'] <plugin folder> job [jobId] [scheduled|manual]   (schedule: one background run, with Kino's caps)\n"
   + "       node sdk/run.mjs <plugin folder> shared   (kino.shared: what the simulated phone and tv hold)\n"
+  + "       node sdk/run.mjs [--since <ms>] [--state '<json>'] <plugin folder> <storeSync | storeList [popular|recent] [category] | storeSearch <q> [category]>   (pluginStore: a store's answers, as Kino's index keeps them)\n"
   + "       node sdk/run.mjs live playlist <url|file> [--epg <url|file>]\n"
   + "       env: KINO_META_FIXTURE=<json> (kino.meta), KINO_TMDB_KEY=<your TMDB key> or KINO_TMDB_FIXTURE=<json> (kino.tmdb), KINO_NUVIO_FIXTURE=<json> (kino.nuvio)";
 const here = dirname(fileURLToPath(import.meta.url));
@@ -228,7 +275,7 @@ function fail(message) {
 }
 
 export function parseArgs(argv) {
-  const opts = { config: {}, record: null, replay: null, raw: false, epg: null, live: false, retry: null, within: null, context: null, state: null, device: null, size: null, out: null, screen: false, foreign: null, liveChannel: null, trigger: null };
+  const opts = { config: {}, record: null, replay: null, raw: false, epg: null, live: false, retry: null, within: null, context: null, state: null, device: null, size: null, out: null, screen: false, bare: false, foreign: null, liveChannel: null, trigger: null, providers: [], cursor: undefined, lang: null };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -239,8 +286,11 @@ export function parseArgs(argv) {
       opts.config[kv.slice(0, eq)] = kv.slice(eq + 1);
     } else if (a === "--record") opts.record = argv[++i];
     else if (a === "--replay") opts.replay = argv[++i];
+    else if (a === "--provider") opts.providers.push(argv[++i] || "");
+    else if (a === "--repo") opts.repo = argv[++i] || "";
     else if (a === "--raw") opts.raw = true;
     else if (a === "--screen") opts.screen = true;
+    else if (a === "--bare") opts.bare = true;
     else if (a === "--foreign") {
       // Task 8k: the plugin whose title plays (its public id and name): the context is a contributed panel's.
       const v = argv[++i] || "";
@@ -281,6 +331,19 @@ export function parseArgs(argv) {
       if (c === null || typeof c !== "object" || Array.isArray(c)) throw new Error("--state needs a JSON object");
       opts.state = c;
     }
+    else if (a === "--cursor") {
+      try { opts.cursor = JSON.parse(argv[++i] ?? ""); } catch (e) { throw new Error(`--cursor needs JSON (the cursor a stream's last answer returned, e.g. 2 or '"abc"'): ${e.message}`); }
+    }
+    else if (a === "--lang") {
+      const l = argv[++i];
+      if (!LANGS.includes(l)) throw new Error(`--lang takes ${LANGS.join(" or ")}`);
+      opts.lang = l;
+    }
+    else if (a === "--since") {
+      const n = Number(argv[++i]);
+      if (!Number.isFinite(n) || n < 0) throw new Error("--since needs when the store last synced, in milliseconds since 1970");
+      opts.since = n;
+    }
     else if (a === "--epg") opts.epg = argv[++i];
     else if (a === "--live") opts.live = true;
     else if (a === contract.kinoDevice.kitFlag) {
@@ -305,8 +368,13 @@ export function parseArgs(argv) {
     }
     else rest.push(a);
   }
+  // --lang is a shorthand for the context's lang (a --context lang loses to it).
+  if (opts.lang) opts.context = { ...(opts.context || {}), lang: opts.lang };
   return { opts, rest };
 }
+
+/** What `--lang` takes: the languages Kino draws a plugin's texts in. */
+export const LANGS = ["es", "en"];
 
 async function main() {
   // Inside Kino, console.* goes to the log. Keep stdout clean so the JSON result can be piped.
@@ -329,7 +397,9 @@ async function main() {
   if (fn === contract.kinoJobs.export) return jobCommand(targetArg, rest, opts);
   if (fn === "shared") return sharedCommand(targetArg);
   if (fn === "notifications") return notificationsCommand(targetArg);
-  if (!targetArg || !(FUNCTIONS.includes(fn) || SETTINGS_FUNCTIONS.includes(fn) || PANEL_FUNCTIONS.includes(fn) || SCREEN_FUNCTIONS.includes(fn) || fn === "sign" || fn === "theme" || Object.values(LIVE).includes(fn))) return fail(USAGE);
+  if (fn === "proto") return protoCommand(targetArg, rest, opts.repo);
+  if (opts.cursor !== undefined && !(fn === "screenEvent" && rest[0] === "protocol")) return fail("--cursor only applies to screenEvent protocol <alias>.<stream> (for a provider on its own: proto <door>.<stream> '<cursor json>')");
+  if (!targetArg || !(FUNCTIONS.includes(fn) || SETTINGS_FUNCTIONS.includes(fn) || PANEL_FUNCTIONS.includes(fn) || SCREEN_FUNCTIONS.includes(fn) || SLOT_FUNCTIONS.includes(fn) || STORE_FUNCTIONS.includes(fn) || fn === "sign" || fn === "theme" || Object.values(LIVE).includes(fn))) return fail(USAGE);
   if (opts.record && opts.replay) return fail("--record and --replay can't be used together");
   const target = resolve(targetArg);
   let stat;
@@ -358,19 +428,24 @@ async function main() {
   }
   // A screen declared through an apiVersion 14 enhancement counts (featureApiVersion): only an older Kino skips it.
   if (SCREEN_FUNCTIONS.includes(fn) && !(featureApiVersion(manifest) >= contract.manifest.screen.apiVersion && manifest.screen)) return fail(`the manifest does not declare "screen" (apiVersion ${contract.manifest.screen.apiVersion}, or an "enhancements" block for it, and the "screen" capability with its "screen" block): Kino shows no screen for this plugin`);
+  if (SLOT_FUNCTIONS.includes(fn) && !(featureApiVersion(manifest) >= contract.playerSlot.apiVersion && manifest.slot)) return fail(`the manifest does not declare "slot" (apiVersion ${contract.playerSlot.apiVersion}, or an "enhancements" block for it, and the "${contract.playerSlot.capability}" capability with its "slot" block): Kino draws nothing for this plugin`);
   if (fn === "categories" && !(manifest.apiVersion >= contract.output.categories.apiVersion && manifest.capabilities.includes("browse"))) return fail("categories needs apiVersion 6 and the browse capability");
-  const capability = Object.values(LIVE).includes(fn) ? "channels" : fn === "sign" ? "resolve" : fn === contract.tracking.export ? contract.tracking.capability : fn;
+  if ((fn === "storeList" || fn === "storeSearch") && manifest.pluginStore?.mode !== "live") return fail(`${fn} is for a live store: declare "pluginStore": { "mode": "live" } in kino-plugin.json`);
+  const capability = Object.values(LIVE).includes(fn) ? "channels" : STORE_FUNCTIONS.includes(fn) ? contract.kinoStore.capability : fn === "sign" ? "resolve" : fn === contract.prepare.export ? contract.prepare.capability : fn === contract.tracking.export ? contract.tracking.capability : fn;
   // `subtitles` may be exported by any plugin without the capability (Kino asks whoever exports it).
   const anyPlugin = contract.capabilities.anyPluginExports.includes(fn);
   if (fn === "meta" && !manifest.capabilities.includes("meta")) return fail(NO_META_CAPABILITY);
-  if (!anyPlugin && !SETTINGS_FUNCTIONS.includes(fn) && !PANEL_FUNCTIONS.includes(fn) && !SCREEN_FUNCTIONS.includes(fn) && fn !== "section" && fn !== "categories" && !manifest.capabilities.includes(capability)) return fail(`the manifest does not declare "${capability}" in capabilities`);
+  if (!anyPlugin && !SETTINGS_FUNCTIONS.includes(fn) && !PANEL_FUNCTIONS.includes(fn) && !SCREEN_FUNCTIONS.includes(fn) && !SLOT_FUNCTIONS.includes(fn) && fn !== "section" && fn !== "categories" && !manifest.capabilities.includes(capability)) return fail(`the manifest does not declare "${capability}" in capabilities`);
   // "catalogOnly": true (Kino 0.9.54): Kino never calls resolve (nor sign); it still runs here, for the older Kino it serves.
   if (manifest.catalogOnly && capability === "resolve") process.stderr.write(`· ${CATALOG_ONLY_RESOLVE_NOTE}\n`);
 
   const configFile = join(here, "config.json");
   const config = { ...(existsSync(configFile) ? JSON.parse(readFileSync(configFile, "utf8")) : {}), ...opts.config };
+  let protocol;
+  try { protocol = await protocolFromProviders(opts.providers, manifestOf(dir), stderr, callerOf(manifestOf(dir), opts.repo || gitRepoOf(dir))); } catch (e) { return fail(e.message); }
   const sharedDevices = kitSharedDevices(dir);
   const { kino, servers, resetBudget, saveTape, writeConfig } = createKino(manifest, {
+    protocol: protocol?.caller,
     shared: sharedDevices.of(kitDevice(opts)),
     storageFile: join(dir, ".kino-storage.json"),
     cookiesFile: join(dir, ".kino-cookies.json"),
@@ -434,7 +509,7 @@ async function main() {
       if (opts.liveChannel && fn === "playerEvent") return fail("--live-channel: Kino sends no playerEvent on an En vivo channel (there is no plugin title to feed it)");
       if (opts.liveChannel && opts.foreign) return fail("--live-channel and --foreign do not go together");
       const foreign = opts.foreign ? { contributorId: manifest.id, ...opts.foreign } : null;
-      try { request = panelRequest(fn, rest.length ? rest : ["-"], opts.context, { apiVersion: manifest.apiVersion, screen: opts.screen, state: opts.state, foreign, liveChannel: opts.liveChannel }); } catch (e) { return fail(e.message); }
+      try { request = panelRequest(fn, rest.length ? rest : ["-"], opts.context, { apiVersion: featureApiVersion(manifest), screen: opts.screen, state: opts.state, foreign, liveChannel: opts.liveChannel }); } catch (e) { return fail(e.message); }
       // Task 8p: a screen-mode panelAction runs as the app marks it: the person's press for a press or submit trigger.
       const answer = fn === "panelAction" && opts.screen
         ? await kitScreenCall.run({ press: contract.qr.screenTriggers.includes(request.event.trigger), tick: false }, () => callPanel(plugin, fn, request))
@@ -453,13 +528,16 @@ async function main() {
       // Task 8j: who may move the player, by origin and the playerControl capability.
       if (!opts.liveChannel) playerControlLines(fn, answer, request, { contributed: !!foreign, manifest });
       if (opts.raw) { process.stdout.write(JSON.stringify(answer === undefined ? null : answer, null, 2) + "\n"); return 0; }
-      return printPanelAnswer(fn, answer, request.context, servers, { apiVersion: manifest.apiVersion, screen: opts.screen, settings: manifest.settings });
+      return printPanelAnswer(fn, answer, request.context, servers, { apiVersion: featureApiVersion(manifest), screen: opts.screen, settings: manifest.settings });
     }
     if (SCREEN_FUNCTIONS.includes(fn)) {
       // Built before the call: a bad argument is the command's fault (exit 2), not the plugin's.
       let request;
       if (opts.trigger !== null && fn !== "screenEvent") return fail("--trigger only applies to screenEvent");
-      try { request = screenRequest(fn, rest, opts); } catch (e) { return fail(e.message); }
+      try { request = screenRequest(fn, rest, { ...opts, recommends: manifest.recommends ?? [] }); } catch (e) { return fail(e.message); }
+      if (fn === "screenEvent" && request.event.name === "protocol") {
+        try { request.event.arg = await protocolEventArg(protocol, request.event.arg, opts.cursor ?? null, stderr); } catch (e) { return fail(e.code ? `✗ ${e.code}: ${e.message}` : e.message); }
+      }
       if (opts.trigger !== null && request.event.name === "open") return fail("--trigger does not apply to open: Kino sends it itself, never as a press");
       const trigger = opts.trigger ?? "tap";
       // Task 8p: a screen's call as the app marks it: the person's press for a tap or a submit, never open or a change.
@@ -468,8 +546,28 @@ async function main() {
       if (opts.raw) { process.stdout.write(JSON.stringify(answer === undefined ? null : answer, null, 2) + "\n"); return 0; }
       return printScreenAnswer(fn, answer, request.context, manifest, writeConfig, fn === "screenEvent" ? { name: request.event.name, trigger } : null);
     }
+    if (SLOT_FUNCTIONS.includes(fn)) {
+      // Built before the call: a bad argument is the command's fault (exit 2), not the plugin's.
+      let request;
+      try { request = slotRequest(fn, rest, opts, manifest); } catch (e) { return fail(e.message); }
+      const answer = await callSlot(plugin, fn, request);
+      saveTape();
+      if (opts.raw) { process.stdout.write(JSON.stringify(answer === undefined ? null : answer, null, 2) + "\n"); return 0; }
+      return printSlotAnswer(fn, answer, request, manifest);
+    }
+    // contract.prepare: what Kino does with it, or why it never calls it; past its time limit the app stops waiting.
+    const preparing = fn === contract.prepare.export;
+    if (preparing) {
+      const warned = prepareWarnings(true, manifest);
+      warned.forEach((w) => stderr(`! ${w}`));
+      if (!warned.length) stderr(`· ${prepareNote()}`);
+    }
+    const prepareStarted = Date.now();
     const out = await call(plugin, fn, rest, opts);
     saveTape();
+    if (preparing && Date.now() - prepareStarted > contract.timeoutsMs.prepare) {
+      stderr(`! ${fn} took ${Date.now() - prepareStarted} ms: past ${contract.timeoutsMs.prepare / 1000} s Kino stops waiting and discards your sandbox (the answer is ignored anyway)`);
+    }
     if (SETTINGS_FUNCTIONS.includes(fn) && !opts.raw) {
       // What the app keeps of the answer (status lines, the action's line, the save's verdict).
       // A password the action fills is printed masked: Kino never shows nor logs it.
@@ -488,7 +586,7 @@ async function main() {
     }
     let checked;
     try {
-      checked = checkOutput(fn, out, manifest, servers, { liveChannel: fn === "resolve" && opts.live, migrateInput: fn === "migrate" ? JSON.parse(rest[0] || "null") : null, segmentsQuery: fn === "segments" ? segmentsArg(rest) : null });
+      checked = checkOutput(fn, out, manifest, servers, { liveChannel: fn === "resolve" && opts.live, migrateInput: fn === "migrate" ? JSON.parse(rest[0] || "null") : null, segmentsQuery: fn === "segments" ? segmentsArg(rest) : fn === "lyrics" ? lyricsArg(rest) : null });
     } catch (e) {
       // Refused only by host, and a live channel's ref would pass: say how to check it as one.
       if (fn === "resolve" && !opts.live && manifest.liveStreamHostsAny) {
@@ -505,6 +603,7 @@ async function main() {
       const note = unmarkedSearchNote(marked);
       if (note) stderr(`aviso: ${note}`);
     }
+    if (fn === "lyrics") stderr(`Kino shows: ${checked.shown === null ? "nothing (no lyrics Kino can draw for this track)" : checked.shown}`);
     if (fn === "segments") stderr(`Kino's button: ${JSON.stringify(segmentSkip(value))}`);
     adultLines(value).forEach((l) => stderr(l));
     const noSign = fn === "resolve" ? signExportProblem(value, plugin) : null;
@@ -663,6 +762,92 @@ export function segmentsArg(rest) {
   const out = episode ? { kind: "episode", ids: {}, show: { ids: id }, season: nums[0], episode: nums[1] } : { kind: "movie", ids: id };
   if (Number.isInteger(duration) && duration > 0) out.durationMs = duration;
   return out;
+}
+
+/**
+ * `lyrics()`'s argument as the app's Lyrics.query builds it: `{ title, artist, album?, durationMs?, ids? }`. [rest]: the title, the
+ * artist, then optionally the album and a durationMs (a number last); or the whole object as JSON.
+ */
+export function lyricsArg(rest) {
+  const arg = String(rest[0] === undefined ? "" : rest[0]).trim();
+  if (arg.startsWith("{")) {
+    try { return JSON.parse(arg); }
+    catch (e) { throw new Error(`the lyrics argument starts with { but is not valid JSON: ${e.message}`); }
+  }
+  if (!arg) throw new Error("lyrics needs a title and an artist, or a JSON object");
+  const out = { title: arg, artist: String(rest[1] === undefined ? "" : rest[1]).trim() };
+  const more = rest.slice(2).map((v) => String(v).trim()).filter(Boolean);
+  const last = more[more.length - 1];
+  if (last !== undefined && /^\d+$/.test(last) && Number(last) > 0) { out.durationMs = Number(last); more.pop(); }
+  if (more[0]) out.album = more[0];
+  return out;
+}
+
+// ---------- the player slot (apiVersion 23) ----------
+
+/**
+ * One slot call as the app makes it: `playerSlot(context)` or `playerSlotAction({ id, context })`. [rest]: `[ref]` for playerSlot,
+ * `<ref> <button id>` for playerSlotAction (ref `-` where the context has none). The context is the title's own plugin's
+ * (`live: false`), or with --foreign another plugin's, with --live-channel an En vivo channel's, with --bare the one a title
+ * that reaches no plugin gets; `--context` merges over it. Throws on a bad argument.
+ */
+export function slotRequest(fn, rest, opts, manifest) {
+  const P = contract.playerSlot;
+  const ref = rest[0] === undefined || rest[0] === "" ? "demo" : String(rest[0]);
+  if (opts.foreign && opts.liveChannel) throw new Error("--live-channel and --foreign do not go together");
+  const over = opts.context || {};
+  let context;
+  if (opts.bare) {
+    context = slotBareContext({ live: !!opts.liveChannel });
+  } else if (opts.liveChannel) {
+    context = slotLiveContext(opts.liveChannel, { device: "tv", lang: fakeContext(ref).lang });
+  } else if (opts.foreign) {
+    context = slotForeignContext(ref, manifest.id, { pluginId: opts.foreign.pluginId, name: opts.foreign.name });
+  } else {
+    context = slotContext(ref);
+  }
+  context = { ...context, ...over };
+  if (fn === P.exports.slot) return { context };
+  const id = rest[1];
+  if (!id) throw new Error(`${fn} needs the id of the button that was pressed`);
+  const button = manifest.slot.elements.find((e) => e.id === id && e.kind === "button");
+  if (!button) throw new Error(`${fn}: "${String(id).slice(0, 40)}" is not a declared button of this manifest (Kino only calls it for a button on screen)`);
+  return { context, event: { id: String(id), context } };
+}
+
+/** The plugin's slot export called with the app's argument, within the app's 5 s. */
+export async function callSlot(plugin, fn, { context, event }, timeoutMs = contract.timeoutsMs[fn]) {
+  let timer;
+  const late = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${fn} did not answer within ${timeoutMs / 1000} s: Kino stops waiting`)), timeoutMs);
+  });
+  try {
+    return await Promise.race([Promise.resolve().then(() => (fn === contract.playerSlot.exports.slot ? plugin[fn](context) : plugin[fn](event))), late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Prints what the app keeps of a slot export's [answer] (`· dropped: <reason>` on stderr, the result on stdout); the exit code. */
+function printSlotAnswer(fn, answer, request, manifest) {
+  if (fn === contract.playerSlot.exports.slot) {
+    const r = parseSlotFrame(answer, manifest.slot.elements);
+    r.dropped.forEach((d) => stderr(`· dropped: ${d}`));
+    if (!r.frame) { stderr("✗ the answer is not an object with an \"items\" list: Kino keeps the last frame (none the first time) and tries again"); return 1; }
+    if (r.frame.refreshMs === null) stderr("· no refreshMs: Kino asks once and does not refresh");
+    process.stdout.write(JSON.stringify(r.frame, null, 2) + "\n");
+    return 0;
+  }
+  const live = request.context.live === true;
+  const control = manifest.capabilities.includes(contract.kinoPlayerControl.capability) && process.env.KINO_PLAYER_CONTROL_REVOKED !== "1";
+  const kept = slotActionRequest(answer, { live, contributed: live || request.context.foreign === true, control }, (l) => stderr(`· dropped: ${l}`));
+  if (!kept) stderr("· nothing to do: Kino does nothing");
+  else {
+    if (kept.openPanel) stderr("· openPanel: Kino opens this plugin's player panel (it does not change tab if the panel is already open)");
+    if (kept.player?.pause !== undefined || kept.player) stderr(`· player: goes through the panel's gate (${contract.kinoPlayerControl.perMinute} controlled a minute, one seek or pause a second, nothing under a Kino dialog)`);
+  }
+  process.stdout.write(JSON.stringify(kept, null, 2) + "\n");
+  return 0;
 }
 
 // ---------- the player panel (apiVersion 9) ----------
@@ -834,6 +1019,79 @@ function liveChannelGoLine(go, manifest, trigger) {
 }
 
 /**
+ * apiVersion 18: what the app does with a `go.setExperience` in [go]: refused (said, false) without the person's press; else
+ * Kino asks the person first, in its own words naming the plugin, and changes nothing without their yes.
+ */
+function setExperienceGoLine(go, manifest, event) {
+  if (!go?.setExperience) return false;
+  if (event === null || event.name === "open" || event.trigger === "change") {
+    stderr("· dropped: go.setExperience: only the person's own tap asks for an experience");
+    return false;
+  }
+  const word = go.setExperience.experience === "light" ? "ligera" : "completa";
+  stderr(`· go.setExperience: Kino asks the person ("${manifest?.name ?? "this plugin"} pide la experiencia ${word}. ¿La usamos?") and changes nothing without their yes`);
+  return true;
+}
+
+/**
+ * apiVersion 19: what the app does with a `go.installPlugin` in [go]: refused (said, false) without the person's own press;
+ * else Kino opens its own install sheet for the repo, and nothing installs until the person taps Instalar there.
+ */
+function installPluginGoLine(go, event) {
+  if (!go?.installPlugin) return false;
+  if (event === null || event.name === "open" || event.trigger === "change") {
+    stderr("· dropped: go.installPlugin: only the person's own tap goes to install a plugin");
+    return false;
+  }
+  stderr(`· go.installPlugin: Kino opens its install sheet over the screen for ${go.installPlugin.repo} (nothing installs until the person taps Instalar), or, when that plugin is already installed (see installed), opens nothing and shows its toast \"That plugin is already installed\"`);
+  return true;
+}
+
+/**
+ * apiVersion 18: what the app does with a `go.useTheme` in [go] from [manifest]'s plugin for [event] (null: not an event), its
+ * screen's [activeTheme] as the call said it: refused (said, false) without the person's press, for a theme that is not the
+ * plugin's, or going back to Kino's while none of its own is active; else Kino acts, shows its toast and calls `screen` again.
+ */
+function useThemeGoLine(go, manifest, event, activeTheme) {
+  if (!go?.useTheme) return false;
+  if (event === null || event.name === "open" || event.trigger === "change") {
+    stderr("· dropped: go.useTheme: only the person's own tap changes the theme");
+    return false;
+  }
+  const { theme } = go.useTheme;
+  if (theme === null) {
+    if (!activeTheme) {
+      stderr("· dropped: go.useTheme with no theme acts only while one of this plugin's themes is active (--context '{\"activeTheme\":\"<id>\"}' to try it)");
+      return false;
+    }
+    stderr("· go.useTheme: Kino goes back to its own theme, shows its toast \"Volviste al tema de Kino\" and calls screen again with activeTheme null");
+    return true;
+  }
+  if (!(manifest?.appThemes ?? []).some((t) => t.id === theme)) {
+    stderr(`· dropped: go.useTheme: "${theme}" is not one of this plugin's appThemes`);
+    return false;
+  }
+  stderr(`· go.useTheme: Kino activates "${theme}" as Apariencia does, shows its toast "Tema aplicado" and calls screen again with activeTheme "${theme}"`);
+  return true;
+}
+
+/**
+ * What the app does with a `go.syncProvider` in [go] from [manifest]'s plugin for an event of [trigger]: refused (said, false)
+ * without the person's press or without the syncProvider capability; else Kino opens its provider settings (true).
+ */
+function syncProviderGoLine(go, manifest, trigger) {
+  if (!go || typeof go !== "object" || go.syncProvider === undefined) return false;
+  const why = syncProviderGoRefusal(manifest, trigger);
+  if (why !== null) {
+    const said = why === "not_press" ? "only the person's own tap or submit opens Kino's provider settings" : 'the plugin must declare the "syncProvider" capability';
+    stderr(`· dropped: go.syncProvider (${why}): ${said}`);
+    return false;
+  }
+  stderr("· go.syncProvider: Kino opens Ajustes > Conectar > Proveedor, where the person taps «Usar <your plugin>»; nothing is chosen for them, only after a tap or submit");
+  return true;
+}
+
+/**
  * Task 8s: what the app does with a kept `go.url` [go]: nothing opens by itself. Kino asks the person in its own sheet (its
  * heading, your plugin's name, the host), only after their tap or submit and within 5 s of it, at most one link a second and
  * 10 a minute; a TV shows a QR code. Fix round 1 (M1): the screen [answer]'s own pop-ups and `open` operations beside it are
@@ -849,13 +1107,120 @@ function urlGoLine(go, answer = null) {
   for (const op of answer.ui || []) if (op && op.open !== undefined) stderr(`· dropped: screen: answer.ui open "${String(op.open).slice(0, 40)}" beside a go.url is dropped (nothing covers Kino's link sheet)`);
 }
 
+/** `owner/name` of the GitHub repository [dir] was cloned from (its git origin), or null: the `repo` a provider sees in ctx.caller. */
+function gitRepoOf(dir) {
+  try {
+    const url = execFileSync("git", ["-C", dir, "remote", "get-url", "origin"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+    const m = /github\.com[:/]([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/i.exec(url);
+    return m ? `${m[1]}/${m[2]}` : null;
+  } catch { return null; }
+}
+
+/** The raw kino-plugin.json of [dir] (the protocol blocks are read from it, enhancements["20"] included). */
+function manifestOf(dir) {
+  return JSON.parse(readFileSync(join(dir, "kino-plugin.json"), "utf8"));
+}
+
+/**
+ * The protocol caller for the consumer in [dir]: each --provider folder is loaded (its own sandbox and kino) and must provide
+ * a door. null without --provider. The kit has no repositories to match: a consumer's entry is served by the first provider
+ * that has its door (the app matches the entry's repo, and never a fork).
+ */
+export async function protocolFromProviders(folders, consumerManifest, say = () => {}, caller = callerOf(consumerManifest)) {
+  if (!folders.length) return null;
+  const providers = [];
+  for (const folder of folders) providers.push(await loadProvider(folder, "--provider "));
+  const blocks = protocolBlocks(consumerManifest);
+  blocks.problems.forEach((p) => say(`! ${p}`));
+  return { caller: createProtocolCaller({ consumes: blocks.consumes, providers, caller, log: (line) => say(`· ${line}`) }), uses: blocks.consumes };
+}
+
+/**
+ * A provider plugin from [folder] (its own sandbox and kino): `{ id, doors, plugin }`. Throws Error, its message prefixed
+ * with [label], when the manifest is refused or opens no door.
+ */
+async function loadProvider(folder, label = "") {
+  const dir = resolve(folder);
+  let raw;
+  try { raw = manifestOf(dir); } catch (e) { throw new Error(`${label}${folder}: cannot read kino-plugin.json: ${e.message}`); }
+  const checked = validateManifest(JSON.stringify(raw));
+  if (!checked.ok) throw new Error(`${label}${folder}: kino-plugin.json: ${checked.field}: ${checked.message}`);
+  const blocks = protocolBlocks(raw);
+  if (blocks.problems.length) throw new Error(`${label}${folder}: kino-plugin.json: ${blocks.problems[0]}`);
+  if (!blocks.provides.length) throw new Error(`${label}${folder}: its manifest declares no "provides" (apiVersion ${contract.protocol.apiVersion}): it opens no door`);
+  const { kino } = createKino(checked.manifest, { storageFile: join(dir, ".kino-storage.json"), config: {}, env: process.env });
+  return { id: checked.manifest.id, doors: blocks.provides, plugin: (await loadPlugin(resolve(dir, checked.manifest.entry), kino)).plugin };
+}
+
+/**
+ * `screenEvent protocol <alias>.<stream>`: the arg Kino sends, `{ alias, stream, items }`, from one poll of the provider's
+ * stream from [cursor] (null: the first poll; `--cursor` gives another, to try what the screen does with repeated items).
+ */
+export async function protocolEventArg(protocol, text, cursor = null, say = () => {}) {
+  if (!protocol) throw new Error("the protocol event needs --provider <folder>: the kit polls the provider's stream");
+  const m = /^([^.]+)\.([^.]+)$/.exec(text ?? "");
+  if (!m) throw new Error('screenEvent protocol takes "<alias>.<stream>" as its argument, e.g. screenEvent protocol tmdb.trending');
+  const answer = await protocol.caller.poll(m[1], m[2], cursor);
+  say(`· polled ${m[1]}.${m[2]} from cursor ${JSON.stringify(cursor)}: ${answer.items?.length ?? 0} item(s), next cursor ${JSON.stringify(answer.cursor ?? null)} (poll again with --cursor '${JSON.stringify(answer.cursor ?? null)}'; Kino polls every ${answer.everySeconds ?? "?"} s and may send items it already sent)`);
+  return { alias: m[1], stream: m[2], items: answer.items };
+}
+
+/**
+ * `proto <door>.<call> ['<arg json>']` or `proto <door>.<stream> ['<cursor json>']`: a provider tried on its own, as a
+ * consumer that lists every call and stream of its doors would reach it through the app (the same order of checks and error
+ * codes as kino.plugins.call: the argument strictly against "in", the answer loosely against "out"). Prints the checked
+ * answer (a stream's `{ items, cursor }`); exit 1 with the error code, 2 for a bad command.
+ */
+export async function protoCommand(folder, rest, repo = null) {
+  const [target, json] = rest;
+  const m = /^([^.]+)\.([^.]+)$/.exec(target ?? "");
+  if (!folder || !m) return fail("usage: node sdk/run.mjs <provider folder> proto <door>.<call> ['<arg json>']   or   proto <door>.<stream> ['<cursor json>']");
+  const [, doorName, name] = m;
+  let provider;
+  try { provider = await loadProvider(folder); } catch (e) { return fail(e.message); }
+  const door = provider.doors.find((d) => d.name === doorName);
+  if (!door) return fail(`the provider has no door "${doorName}": its doors are ${provider.doors.map((d) => d.name).join(", ")}`);
+  const calls = Object.keys(door.calls);
+  const streams = Object.keys(door.streams);
+  if (!calls.includes(name) && !streams.includes(name)) return fail(`the door "${doorName}" has no call or stream "${name}": it has ${[...calls, ...streams].sort().join(", ")}`);
+  let arg = null;
+  if (json !== undefined) {
+    try { arg = JSON.parse(json); } catch (e) { return fail(`the ${streams.includes(name) ? "cursor" : "argument"} must be JSON: ${e.message}`); }
+  }
+  const use = { alias: doorName, repo: "kit/proto", door: doorName, calls, streams };
+  const caller = createProtocolCaller({ consumes: [use], providers: [provider], caller: { ...KIT_CALLER, repo: repo || null }, log: (line) => stderr(`· ${line}`) });
+  try {
+    if (calls.includes(name)) {
+      process.stdout.write(JSON.stringify(await caller.call(doorName, name, json === undefined ? undefined : arg), null, 2) + "\n");
+      return 0;
+    }
+    const { items, cursor, everySeconds } = await caller.poll(doorName, name, arg);
+    process.stdout.write(JSON.stringify({ items, cursor }, null, 2) + "\n");
+    stderr(`· ${items.length} item(s); Kino polls every ${everySeconds} s and passes the cursor back: node sdk/run.mjs ${folder} proto ${doorName}.${name} '${JSON.stringify(cursor)}'`);
+    return 0;
+  } catch (e) {
+    if (!e?.code) throw e;
+    stderr(`✗ ${e.code}: ${e.message}`);
+    return 1;
+  }
+}
+
 /**
  * One screen call as the app makes it: `{ context }` for `screen`, `{ context, event }` for `screenEvent`. [opts] carries
  * `--context` (merged over the fake context) and `--state` (merged over its state). [rest] for screenEvent:
  * `<name> [arg] [value json]`. Throws on a bad argument.
  */
-export function screenRequest(fn, rest, { context = null, state = null } = {}) {
+export function screenRequest(fn, rest, { context = null, state = null, recommends = [] } = {}) {
   const ctx = fakeScreenContext(context || {});
+  // Kino 0.9.81: `installed` has one key per entry of the manifest's `recommends` (as written), false until `--context` says
+  // otherwise; Kino never adds a key of its own, so a key the manifest does not declare is the command's fault.
+  const given = ctx.installed;
+  if (given === null || typeof given !== "object" || Array.isArray(given)) throw new Error("--context installed must be an object of owner/name to true or false");
+  for (const [repo, yes] of Object.entries(given)) {
+    if (!recommends.includes(repo)) throw new Error(`--context installed names "${repo}", which is not in the manifest's "recommends": Kino tells a plugin only about those`);
+    if (typeof yes !== "boolean") throw new Error(`--context installed "${repo}" must be true or false`);
+  }
+  ctx.installed = Object.fromEntries(recommends.map((repo) => [repo, given[repo] === true]));
   if (state) ctx.state = { ...ctx.state, ...state };
   if (fn === "screen") return { context: ctx };
   const [name, arg, value] = rest;
@@ -864,7 +1229,7 @@ export function screenRequest(fn, rest, { context = null, state = null } = {}) {
   if (value !== undefined) {
     try { parsed = JSON.parse(value); } catch (e) { throw new Error(`the value must be JSON: ${e.message}`); }
   }
-  return { context: ctx, event: fakeScreenEvent(String(name), { arg: arg === undefined || arg === "" ? undefined : String(arg), value: parsed, state: ctx.state, route: ctx.route, device: ctx.device, lang: ctx.lang }) };
+  return { context: ctx, event: fakeScreenEvent(String(name), { arg: arg === undefined || arg === "" ? undefined : String(arg), value: parsed, state: ctx.state, route: ctx.route, device: ctx.device, lang: ctx.lang, activeTheme: ctx.activeTheme, installed: ctx.installed }) };
 }
 
 /** The plugin's export called with the app's arguments: `screen(context)` or `screenEvent(event)`, within the app's 20 s. */
@@ -888,11 +1253,14 @@ export async function callScreen(plugin, fn, { context, event }, timeoutMs = SCR
 function printScreenAnswer(fn, answer, context, manifest, writeConfig = () => {}, event = null) {
   const lang = langOf(context);
   // As the app: a series title is kept only from a plugin that declares episodes; binds and config meet its settings.
-  const opts = { allowSeries: (manifest?.capabilities ?? []).includes("episodes"), settings: manifest?.settings ?? [] };
+  const opts = { allowSeries: (manifest?.capabilities ?? []).includes("episodes"), settings: manifest?.settings ?? [], apiVersion: manifest ? featureApiVersion(manifest) : undefined };
   if (fn === "screen") {
     const checked = checkScreenTree(answer, lang, undefined, opts);
     checked.dropped.forEach((d) => stderr(`· dropped: ${d}`));
     if (!checked.tree) { stderr("✗ the whole screen is invalid: Kino shows its error state with a close button"); return 1; }
+    // apiVersion 19: what Kino does with the two Scaffold properties that change its own Back and title bar.
+    if (checked.tree.type === "scaffold" && checked.tree.onBack) stderr("· Scaffold.onBack: Kino's Back sends it to you instead of leaving (a failed or timed-out call, or a second Back meanwhile, closes the screen)");
+    if (checked.tree.type === "scaffold" && checked.tree.appBar?.mergeWithKinoBar) stderr("· AppBar.mergeWithKinoBar: Kino draws one bar, your leading in Close's place and your title in your plugin's name's");
     process.stdout.write(JSON.stringify(printScreenTree(checked.tree), null, 2) + "\n");
     return 0;
   }
@@ -901,6 +1269,10 @@ function printScreenAnswer(fn, answer, context, manifest, writeConfig = () => {}
   if (!checked.answer) { stderr("✗ the answer is invalid: Kino ignores it"); return 1; }
   // Task 11: a go.liveChannel: honoured only after the person's own tap or submit, for a plugin whose tab joins live channels.
   if (checked.answer.go?.liveChannel && !liveChannelGoLine(checked.answer.go, manifest, event ? (event.trigger === "tap" ? "press" : event.trigger) : "open")) delete checked.answer.go;
+  if (checked.answer.go?.syncProvider && !syncProviderGoLine(checked.answer.go, manifest, event ? (event.trigger === "tap" ? "press" : event.trigger) : "open")) delete checked.answer.go;
+  if (checked.answer.go?.useTheme && !useThemeGoLine(checked.answer.go, manifest, event, context?.activeTheme)) delete checked.answer.go;
+  if (checked.answer.go?.setExperience && !setExperienceGoLine(checked.answer.go, manifest, event)) delete checked.answer.go;
+  if (checked.answer.go?.installPlugin && !installPluginGoLine(checked.answer.go, event)) delete checked.answer.go;
   // As the app (Task 8m, 8s): a change's go.titleByIds or go.url is dropped; only the person's own tap opens one.
   const go = checked.answer.go;
   if (event && event.trigger === "change" && go && (go.titleByIds || go.url)) {
@@ -909,6 +1281,24 @@ function printScreenAnswer(fn, answer, context, manifest, writeConfig = () => {}
     delete checked.answer.go;
   }
   urlGoLine(checked.answer.go, checked.answer);
+  // As the app: an image is shared only after the person's own tap or submit, from apiVersion 17, and never on a TV.
+  if (checked.answer.share) {
+    const SHARE = contract.manifest.screen.shareAnswer;
+    const why = !event || (event.trigger !== "tap" && event.trigger !== "submit") ? "only the person's own tap shares"
+      : (manifest?.apiVersion ?? 0) < SHARE.fromApiVersion ? `it needs apiVersion ${SHARE.fromApiVersion}`
+      : context?.device === "tv" ? "only a phone shares an image" : null;
+    if (why) { stderr(`· dropped: screen: answer.share: ${why}`); delete checked.answer.share; }
+    else stderr(`· Kino draws "${checked.answer.share.key}" at ${SHARE.widthPx}x${SHARE.heightPx} with your plugin's name under it, then opens the system share sheet`);
+  }
+  // As the app: Kino's own row of a job, only after the person's own tap or submit, for a job of this plugin.
+  if (checked.answer.enableJob) {
+    const id = checked.answer.enableJob;
+    const why = !event || (event.trigger !== "tap" && event.trigger !== "submit") ? "only the person's own tap turns a job on"
+      : !(manifest?.jobs || []).some((j) => j.id === id) ? `no job "${id}" in kino-plugin.json`
+      : (manifest?.apiVersion ?? 0) < contract.kinoJobs.manifest.enableJobApiVersion ? `it needs apiVersion ${contract.kinoJobs.manifest.enableJobApiVersion}` : null;
+    if (why) { stderr(`· dropped: screen: answer.enableJob: ${why}`); delete checked.answer.enableJob; }
+    else stderr(`· Kino turns on its own row of "${id}"; no answer turns it off`);
+  }
   if (checked.answer.config) {
     // Screen asks: a password written from a screen is never printed (Kino never logs it either), only that it is set.
     const isPassword = (k) => (manifest.settings || []).some((s) => s.key === k && s.type === "password");
@@ -1137,13 +1527,14 @@ async function jobCommand(targetArg, rest, opts) {
     config, record: opts.record && resolve(opts.record), replay: opts.replay && resolve(opts.replay), device: opts.device, callFunction: J.export, entryFile: join(dir, manifest.entry), noticesFile: join(dir, ".kino-notices.json"),
     shared: sharedDevices.of(kitDevice(opts)),
   });
-  const budget = jobBudget();
+  const caps = jobCaps(manifest);
+  const budget = jobBudget({ maxFetches: caps.maxFetches });
   const wrapped = jobKino(kino, budget, (line) => stderr(`· ${line}`));
   globalThis.kino = wrapped;
   const plugin = (await loadPlugin(resolve(dir, manifest.entry), wrapped)).plugin;
   if (typeof plugin[J.export] !== "function") return fail(`${manifest.entry} does not export ${J.export}(): Kino refuses to install a "${J.capability}" plugin without it`);
   stderr(`job(${JSON.stringify(ctx)})`);
-  const r = await runJob(plugin, ctx, budget);
+  const r = await runJob(plugin, ctx, budget, caps.timeoutMs);
   saveTape();
   const label = job.label + (job.labelEn ? ` / ${job.labelEn}` : "");
   if (job.runOn === "preferPhone") stderr(`· runOn "preferPhone": in Kino ONE of the person's linked devices runs it, a phone first; share the result with kino.shared (this run: the simulated ${kitDevice(opts)})`);
@@ -1278,7 +1669,16 @@ export async function call(plugin, fn, rest, opts = {}) {
   if (fn === "subtitles") return plugin.subtitles(subtitlesArg(rest));
   if (fn === "track") return plugin.track(trackArg(rest));
   if (fn === "segments") return plugin.segments(segmentsArg(rest));
+  if (fn === "lyrics") return plugin.lyrics(lyricsArg(rest));
   if (fn === "meta") return callMeta(plugin, metaArg(rest));
+  // apiVersion 15's pluginStore: the arguments the app's store sync and live calls send.
+  if (fn === "storeSync") return plugin.storeSync({ reason: "reload", ...(opts.since !== undefined ? { since: opts.since } : {}), ...(opts.state ? { state: opts.state } : {}) });
+  if (fn === "storeList") {
+    const sort = rest[0] === undefined ? contract.kinoStore.sorts[0] : rest[0];
+    if (!contract.kinoStore.sorts.includes(sort)) throw new Error(`storeList takes ${contract.kinoStore.sorts.join(" or ")}`);
+    return plugin.storeList({ sort, ...(rest[1] !== undefined ? { category: rest[1] } : {}) });
+  }
+  if (fn === "storeSearch") return plugin.storeSearch({ q: arg, ...(rest[1] !== undefined ? { category: rest[1] } : {}) });
   if (fn === "guide") {
     const from = Date.now() - 2 * 3600 * 1000;
     return plugin.guide({ channelIds: arg ? arg.split(",") : [], from, to: from + contract.live.maxGuideWindowMs });
@@ -1303,7 +1703,7 @@ export async function call(plugin, fn, rest, opts = {}) {
   return plugin.search(query);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url))) {
   process.exitCode = await main();
   if (metaTimedOut) setTimeout(() => process.exit(), 100).unref();
 }

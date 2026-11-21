@@ -2,7 +2,13 @@
 
 # YouTube Music para Kino
 
-Plugin de música para Kino (apiVersion 8, Kino 0.9.54 o superior): busca, explora una sección propia, abre álbumes y listas, y reproduce el audio de YouTube Music. Con tu sesión, también ves tus **Me gusta** y **tus listas**.
+Plugin de música para Kino (apiVersion 19, Kino 0.9.81 o superior): busca, explora una sección propia, abre álbumes y listas, y reproduce el audio de YouTube Music. Con tu sesión, también ves tus **Me gusta** y **tus listas**.
+
+## Novedades de la 0.6.6
+
+- **Una sola barra compacta**: el `AppBar` usa `mergeWithKinoBar: true` + `dense: true`, así la barra del plugin se funde con la de Kino (nuestro `leading` donde estaba Cerrar, nuestro título donde estaba el nombre) en vez de apilar dos barras.
+- **Salidas reales en la barra**: en la portada el `leading` cierra (`{ close: true }`); en el resto de pestañas vuelve a la vista anterior (`go_back`), igual que el Atrás del sistema, que ya no cierra la pantalla fuera de la portada (`Scaffold.onBack`).
+- **SDK actualizado** de `kinotvapp/kino-plugin-sdk`: `contract.json`, `kino.d.ts` y `sdk/` al día (apiVersion hasta la 27) y `apiVersion: 19` en el manifiesto, con `screen` y `ai` como capacidades propias y el bloque `screen`/`panel` en la raíz (los `enhancements` 14 y 19 ya no aplican).
 
 ## Novedades de la 0.6.5
 
@@ -10,7 +16,7 @@ Plugin de música para Kino (apiVersion 8, Kino 0.9.54 o superior): busca, explo
 - **Explorar con secciones en el `AppBar`**: Para ti, Explorar y Tendencias como pestañas (`TabBar`); la que falta se carga al volver a tocarla, con `Skeleton` mientras llega.
 - **Mucho más material de Kino**: `heroCard`, `titleRail`, `titleGrid`, `ListTile`, `CircleAvatar`, `Chips`, `MaterialBanner`, `ExpansionTile`, `steps`, `emptyState`, `settings`, `PopupMenuButton` (menú «más» del `AppBar`), `Divider`, indicadores de carga y botones.
 - **Buscar es una pestaña de verdad**: mantiene sus eventos (`open_search`, `close_search`) y suma `clear_search` desde el `AppBar`.
-- **Arreglos**: se quitaron `onBack` y `mergeWithKinoBar` (no existen en el contrato y Kino los descartaba en silencio) y el `Skeleton` original usaba `variant`/`rows`, que no son props válidos; ahora es `shape`/`lines`.
+- **Arreglos**: el `Skeleton` original usaba `variant`/`rows`, que no son props válidos; ahora es `shape`/`lines`.
 - **Aviso «Novedades»**: al abrir tras cada actualización aparece un `MaterialBanner` con el changelog de la versión en un `ExpansionTile`; «Entendido» lo descarta y guarda la versión vista en `kino.storage`, así vuelve a salir solo cuando cambie la versión.
 
 ## Novedades de la 0.5.0

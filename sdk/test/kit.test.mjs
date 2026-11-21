@@ -31,11 +31,11 @@ const manifest = (extra = {}) => JSON.stringify({
 });
 
 test("contract.json is the one the app pins", () => {
-  assert.equal(contract.apiVersion, 15);
+  assert.equal(contract.apiVersion, 27);
   // apiVersion 5 stays what Kino 0.9.45 made it: the author-signed entry, nothing else.
   assert.equal(contract.manifest.signature.apiVersion, 5);
-  assert.deepEqual(contract.capabilities.names, ["search", "home", "browse", "episodes", "resolve", "download", "drm", "channels", "migrate", "scopedSearch", "meta", "subtitles", "tracking", "segments", "playlists", "externalResolve", "nuvio", "syncProvider", "socket", "byteSource", "storageLarge", "catalog", "qrScan", "imageSource", "screen", "library", "playerPanelTab", "playerControl", "room", "schedule", "ai", "shared", "identity", "notifications"]);
-  assert.deepEqual(contract.capabilities.declarative, ["download", "drm", "scopedSearch", "externalResolve", "nuvio", "socket", "storageLarge", "catalog", "qrScan", "library", "playerControl", "room", "ai", "shared", "identity", "notifications"]);
+  assert.deepEqual(contract.capabilities.names, ["search", "home", "browse", "episodes", "resolve", "download", "drm", "channels", "migrate", "scopedSearch", "meta", "subtitles", "tracking", "segments", "lyrics", "playlists", "externalResolve", "nuvio", "syncProvider", "socket", "byteSource", "storageLarge", "catalog", "qrScan", "imageSource", "screen", "library", "playerPanelTab", "playerControl", "playerSlot", "room", "schedule", "ai", "shared", "identity", "notifications", "coins", "pluginStore", "files", "progress"]);
+  assert.deepEqual(contract.capabilities.declarative, ["download", "drm", "scopedSearch", "externalResolve", "nuvio", "socket", "storageLarge", "catalog", "qrScan", "library", "playerControl", "room", "ai", "shared", "identity", "notifications", "coins", "files", "progress"]);
   assert.deepEqual(contract.permissions, []);
 });
 
@@ -210,14 +210,14 @@ test("crypto gives the app's vectors", () => {
   const c = kino.crypto;
   assert.equal(c.hash("md5", "abc"), "900150983cd24fb0d6963f7d28e17f72");
   assert.equal(c.hmac("sha256", "Jefe", "what do ya want for nothing?"), "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843");
-  const key = "2b7e151628aed2a6abf7158809cf4f3c", iv = "000102030405060708090a0b0c0d0e0f"; // secretscan:allow
-  const enc = c.encrypt("aes-128-cbc", { key, iv, keyEncoding: "hex", ivEncoding: "hex", data: "hola mundo", outputEncoding: "hex" }); // secretscan:allow
+  const key = "2b7e151628aed2a6abf7158809cf4f3c", iv = "000102030405060708090a0b0c0d0e0f";
+  const enc = c.encrypt("aes-128-cbc", { key, iv, keyEncoding: "hex", ivEncoding: "hex", data: "hola mundo", outputEncoding: "hex" });
   assert.equal(enc, "91d3f1bb5aa666718bdcd8514571632a");
-  assert.equal(c.decrypt("aes-128-cbc", { key, iv, keyEncoding: "hex", ivEncoding: "hex", data: enc, inputEncoding: "hex" }), "hola mundo"); // secretscan:allow
-  const gcm = c.encrypt("aes-128-gcm", { key: "00".repeat(16), keyEncoding: "hex", iv: "00".repeat(12), ivEncoding: "hex", data: "00".repeat(16), inputEncoding: "hex", outputEncoding: "hex" }); // secretscan:allow
+  assert.equal(c.decrypt("aes-128-cbc", { key, iv, keyEncoding: "hex", ivEncoding: "hex", data: enc, inputEncoding: "hex" }), "hola mundo");
+  const gcm = c.encrypt("aes-128-gcm", { key: "00".repeat(16), keyEncoding: "hex", iv: "00".repeat(12), ivEncoding: "hex", data: "00".repeat(16), inputEncoding: "hex", outputEncoding: "hex" });
   assert.equal(gcm, "0388dace60b6a392f328c2b971b2fe78ab6e47d42cec13bdf53a67b21257bddf");
   assert.equal(c.pbkdf2("sha1", "password", "salt", 2, 20), "ea6c014dc72d6f8ccd1ed92ace1d41f0d8de8957");
-  assert.equal(c.encrypt("des-ede3-ecb", { key: "0123456789abcdef23456789abcdef01456789abcdef0123", keyEncoding: "hex", data: "5468652071756663", inputEncoding: "hex", padding: "none", outputEncoding: "hex" }), "a826fd8ce53b855f"); // secretscan:allow
+  assert.equal(c.encrypt("des-ede3-ecb", { key: "0123456789abcdef23456789abcdef01456789abcdef0123", keyEncoding: "hex", data: "5468652071756663", inputEncoding: "hex", padding: "none", outputEncoding: "hex" }), "a826fd8ce53b855f");
   assert.throws(() => c.hash("sha3", "x"), (e) => e.code === "crypto_error" && e.name === "KinoError_crypto_error");
   assert.throws(() => c.pbkdf2("sha1", "p", "s", 100001, 20), (e) => e.code === "crypto_error");
   assert.throws(() => c.randomBytes(1025), (e) => e.code === "crypto_error");
@@ -316,16 +316,16 @@ test("crypto byte ops (apiVersion 13): IGE round-trips, modPow and gunzip behave
   const { kino } = createKino(JSON.parse(manifest({ apiVersion: 13 })));
   const c = kino.crypto;
   const key = "11".repeat(32), iv = "22".repeat(32), data = "33".repeat(48);
-  const o = { keyEncoding: "hex", ivEncoding: "hex", inputEncoding: "hex" }; // secretscan:allow
+  const o = { keyEncoding: "hex", ivEncoding: "hex", inputEncoding: "hex" };
   // The app's PluginCryptoTest vector (MTProto spike, 64 bytes).
   const vk = "030a11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dc", vi = "fffaf5f0ebe6e1dcd7d2cdc8c3beb9b4afaaa5a09b96918c87827d78736e6964";
   const vp = "010e1b2835424f5c697683909daab7c4d1deebf805121f2c394653606d7a8794a1aebbc8d5e2effc091623303d4a5764717e8b98a5b2bfccd9e6f3000d1a2734";
   const vc = "5f1d528dcb99652fb74ef03178d728e70639ab1fe08aed46eec6d198b0a2ccd6922d2c3a899e45884f48802f7286d7e40153381bb84fd7ee9928e0dbc49c081c";
   assert.equal(c.aesIge("encrypt", vk, vi, vp, { ...o, outputEncoding: "hex" }), vc);
   assert.equal(c.aesIge("decrypt", vk, vi, vc, { ...o, outputEncoding: "hex" }), vp);
-  const enc = c.aesIge("encrypt", key, iv, data, { ...o, outputEncoding: "hex" }); // secretscan:allow
+  const enc = c.aesIge("encrypt", key, iv, data, { ...o, outputEncoding: "hex" });
   assert.equal(enc.length, 96);
-  assert.equal(c.aesIge("decrypt", key, iv, enc, { ...o, outputEncoding: "hex" }), data); // secretscan:allow
+  assert.equal(c.aesIge("decrypt", key, iv, enc, { ...o, outputEncoding: "hex" }), data);
   assert.throws(() => c.aesIge("encrypt", key, iv, "33".repeat(15), { ...o }), (e) => e.code === "crypto_error" && e.message === "invalid crypto operation");
   assert.equal(c.modPow("04", "0d", "1f1"), (4n ** 13n % 0x1f1n).toString(16).padStart(4, "0"));
   assert.equal(c.modPow("2", "0", "ff"), "01");
@@ -351,7 +351,7 @@ test("crypto convert and aesIgeVerify (apiVersion 13) behave like the app", () =
   const vc = "5f1d528dcb99652fb74ef03178d728e70639ab1fe08aed46eec6d198b0a2ccd6922d2c3a899e45884f48802f7286d7e40153381bb84fd7ee9928e0dbc49c081c";
   const prefix = "a1".repeat(32);
   const mac = c.hash("sha256", prefix + vp, { inputEncoding: "hex" }).slice(16, 48);
-  const o = { keyEncoding: "hex", ivEncoding: "hex", inputEncoding: "hex", outputEncoding: "hex", mac, macPrefix: prefix, macOffset: 8 }; // secretscan:allow
+  const o = { keyEncoding: "hex", ivEncoding: "hex", inputEncoding: "hex", outputEncoding: "hex", mac, macPrefix: prefix, macOffset: 8 };
   assert.equal(c.aesIgeVerify(vk, vi, vc, o), vp);
   assert.equal(c.aesIgeVerify(vk, vi, vc, { ...o, outputEncoding: undefined }), Buffer.from(vp, "hex").toString("base64"));
   assert.throws(() => c.aesIgeVerify(vk, vi, vc, { ...o, macOffset: 7 }), (e) => e.code === "crypto_error" && e.message === "the mac doesn't match");
@@ -384,7 +384,7 @@ test("key pairs: the shared vectors import and verify like the app", (t) => {
         assert.equal(c.verify({ key: fromJwk, data: v.data + "!", signature, hash: v.hash, format }), false);
       }
     }
-    if (v.type === "ed25519") assert.equal(c.verify({ key: fromJwk, data: v.data, encoding: "hex", signature: v.signature }), true); // secretscan:allow
+    if (v.type === "ed25519") assert.equal(c.verify({ key: fromJwk, data: v.data, encoding: "hex", signature: v.signature }), true);
   }
 });
 
@@ -401,7 +401,7 @@ test("key pairs: round trips, P1363 vs DER lengths, ECDH and X25519 agree", () =
     assert.equal(der[0], 0x30);
     assert.ok(der.length > 2 * n && der.length <= 2 * n + 8);
     assert.equal(c.verify({ key: publicKey, data: "reto", signature: p1363, hash, format: "ieee-p1363" }), true);
-    assert.equal(c.verify({ key: privateKey, data: "reto", signature: der.toString("hex"), signatureEncoding: "hex", hash }), true); // secretscan:allow
+    assert.equal(c.verify({ key: privateKey, data: "reto", signature: der.toString("hex"), signatureEncoding: "hex", hash }), true);
     const other = c.generateKeyPair({ type: "ec", namedCurve: curve });
     const ab = c.deriveSharedSecret({ privateKey, publicKey: other.publicKey });
     assert.equal(ab, c.deriveSharedSecret({ privateKey: other.privateKey, publicKey }));
@@ -409,9 +409,9 @@ test("key pairs: round trips, P1363 vs DER lengths, ECDH and X25519 agree", () =
   }
   const ed = c.generateKeyPair({ type: "ed25519" });
   assert.deepEqual(Object.keys(ed.privateKey), ["type", "handle"]);
-  const sig = c.sign({ key: ed.privateKey, data: "68656c6c6f", encoding: "hex", outputEncoding: "hex" }); // secretscan:allow
+  const sig = c.sign({ key: ed.privateKey, data: "68656c6c6f", encoding: "hex", outputEncoding: "hex" });
   assert.equal(sig.length, 128);
-  assert.equal(c.verify({ key: ed.publicKey, data: "hello", signature: sig, signatureEncoding: "hex" }), true); // secretscan:allow
+  assert.equal(c.verify({ key: ed.publicKey, data: "hello", signature: sig, signatureEncoding: "hex" }), true);
   const a = c.generateKeyPair({ type: "x25519" }), b = c.generateKeyPair({ type: "x25519" });
   const s1 = c.deriveSharedSecret({ privateKey: a.privateKey, publicKey: c.importKey({ format: "raw", type: "x25519", key: b.publicKey.raw }) });
   assert.equal(s1, c.deriveSharedSecret({ privateKey: b.privateKey, publicKey: { jwk: a.publicKey.jwk } }));
@@ -1148,6 +1148,19 @@ test("checkOutput keeps an audio item's artist trimmed and cut, as the app does,
   assert.equal(contract.output.maxArtistChars, 200);
 });
 
+test("checkOutput keeps an audio item's lyrics ids as short texts, as the app does, and never on another kind", () => {
+  const at19 = { ...JSON.parse(manifest({ apiVersion: 19 })), capabilities: ["search", "resolve"] };
+  const r = checkOutput("search", [
+    { id: "al", ref: "a", title: "Una canción", kind: "music", ids: { youtube: " dQw4w9WgXcQ ", isrc: "USRC17607839", musicbrainz: "x", spotify: "no", tmdb: 5 } },
+    { id: "bd", ref: "b", title: "Ids malos", kind: "music", ids: { youtube: 7, isrc: "", musicbrainz: "m".repeat(100) } },
+    { id: "pc", ref: "p", title: "Un podcast", kind: "podcast", ids: { youtube: "abc" } },
+    { id: "m", ref: "r", title: "Una peli", kind: "movie", ids: { youtube: "abc", tmdb: 10 } },
+  ], at19);
+  assert.deepEqual(r.value.items.map((i) => i.audioIds), [{ youtube: "dQw4w9WgXcQ", isrc: "USRC17607839", musicbrainz: "x" }, undefined, { youtube: "abc" }, undefined]);
+  assert.equal(r.value.items[3].tmdb, 10);
+  assert.equal(contract.output.maxAudioIdChars, 64);
+});
+
 test("checkOutput validates a stream's audioTracks like its subtitles", () => {
   const m = JSON.parse(manifest());
   const r = checkOutput("resolve", {
@@ -1200,7 +1213,7 @@ test("checkOutput accepts a widevine drm block only for a plugin that declares d
     assert.throws(() => checkOutput("resolve", { url: "https://example.com/v.mpd", [k]: "x" }, withDrm), /the video has DRM/);
     assert.throws(() => checkOutput("resolve", { ...stream, [k]: "x" }, withDrm), /the video has DRM/);
   }
-  assert.deepEqual(contract.output.drm, { field: "drm", types: ["widevine"] });
+  assert.deepEqual(contract.output.drm, { field: "drm", types: ["widevine", "clearkey"], listApiVersion: 24, maxOptions: 4, clearKey: { maxPairs: 8, hexDigits: 32 } });
   assert.equal(contract.output.maxHeaders, 20);
   // A protected video may still bring side audio tracks: both are kept (the app plays the audio clear).
   const both = checkOutput("resolve", { ...stream, audioTracks: [{ lang: "es", url: "https://example.com/a.aac" }, { lang: "en", url: "https://evil.example/a.aac" }] }, withDrm).value;
@@ -1427,8 +1440,9 @@ function declaredKino() {
 }
 
 test("kino.d.ts declares exactly what the kit's kino has", () => {
-  // At the highest apiVersion, so members gated on it (kino.meta.byTitle, apiVersion 9) are there too.
-  const { kino } = createKino(JSON.parse(manifest({ apiVersion: contract.maxApiVersion })));
+  // At the highest apiVersion, so members gated on it (kino.meta.byTitle, apiVersion 9) are there too. "progress" is declared
+  // (it adds only kino.progress, and kino.d.ts declares all four of its functions).
+  const { kino } = createKino(JSON.parse(manifest({ apiVersion: contract.maxApiVersion, capabilities: ["search", "resolve", "progress"] })));
   const out = new Set();
   const walk = (o, p) => Object.keys(o).forEach((k) => {
     const v = o[k];
@@ -1442,7 +1456,7 @@ test("kino.d.ts declares exactly what the kit's kino has", () => {
   // kino.cloudstream exists only in a plugin Kino generated from a CloudStream repository (KinoDtsTest's rule): a
   // hand-written plugin's kino, which is the kit's, never has it. kino.ws exists only with the "socket" capability.
   const declared = [...declaredKino()];
-  const conditional = declared.filter((m) => m.startsWith("kino.cloudstream.") || m.startsWith("kino.ws.") || m.startsWith("kino.catalog.") || m.startsWith("kino.qr."));
+  const conditional = declared.filter((m) => m.startsWith("kino.cloudstream.") || m.startsWith("kino.ws.") || m.startsWith("kino.catalog.") || m.startsWith("kino.qr.") || m.startsWith("kino.visualBrowser.") || m.startsWith("kino.files.") || m.startsWith("kino.sync.active") || m.startsWith("kino.sync.setActive"));
   assert.ok(declared.some((m) => m.startsWith("kino.cloudstream.")), "kino.d.ts no longer declares kino.cloudstream");
   assert.ok(declared.some((m) => m.startsWith("kino.ws.")), "kino.d.ts no longer declares kino.ws");
   assert.deepEqual([...out].sort(), declared.filter((m) => !conditional.includes(m)).sort());
@@ -1455,6 +1469,9 @@ test("kino.d.ts declares exactly what the kit's kino has", () => {
   // And with "qrScan", exactly kino.qr.scan.
   const withQr = createKino(JSON.parse(manifest({ apiVersion: contract.maxApiVersion, capabilities: ["search", "resolve", "qrScan"] }))).kino;
   assert.deepEqual(Object.keys(withQr.qr).map((k) => `kino.qr.${k}=function`), declared.filter((m) => m.startsWith("kino.qr.")));
+  // And with the manifest's "visualBrowser": true (apiVersion 20), exactly open and available.
+  const withVisual = createKino({ ...JSON.parse(manifest({ apiVersion: contract.maxApiVersion })), visualBrowser: true }).kino;
+  assert.deepEqual(Object.keys(withVisual.visualBrowser).sort(), declared.filter((m) => m.startsWith("kino.visualBrowser.")).map((m) => m.slice(19).replace(/=.*/, "")).sort());
 });
 
 test("kino.seed in the kit answers nothing, never throws, and keeps the contract's keys and limits", () => {
@@ -1733,9 +1750,12 @@ test("categories: an optional list of known ids at every apiVersion, no repeats"
   for (const apiVersion of [1, 6]) {
     assert.deepEqual(validateManifest(manifest({ apiVersion, categories: ["live", "radio"] })).manifest.categories, ["live", "radio"]);
   }
-  for (const value of [["movies", "movies"], ["películas"], "live", [1]]) {
+  for (const value of [["movies", "movies"], ["películas"], "live", [1], ["Manga"], ["m"], ["1manga"], ["a".repeat(25)], ["manga", "manga"]]) {
     assert.deepEqual(validateManifest(manifest({ categories: value })), { ok: false, field: "categories", message: contract.manifest.categories.message });
   }
+  // A new type is a valid id of the pattern: lowercase letters, digits and hyphens, 2 to 24, a letter first.
+  assert.deepEqual(validateManifest(manifest({ categories: ["manga", "audio-books", "movies"] })).manifest.categories, ["manga", "audio-books", "movies"]);
+  assert.deepEqual(validateManifest(manifest({ categories: ["a".repeat(24)] })).manifest.categories, ["a".repeat(24)]);
 });
 
 test("discoverable: an optional boolean at every apiVersion; false is a note, not a problem", async () => {
@@ -1801,12 +1821,12 @@ test("secrets: parsed with apiVersion 4, ignored below it, and its Spanish messa
   assert.deepEqual(contract.manifest.secrets, {
     apiVersion: 4, namePattern: "^[A-Za-z][A-Za-z0-9_]{0,31}$", maxSecrets: 16, maxValueBytes: 4096, prefix: "kino-sealed:v1:",
     largeApiVersion: 6, largeMaxValueBytes: 8192,
-    typed: { apiVersion: 6, uses: ["cipher-key"], keyEncodings: ["hex", "base64"], keyBytes: [16, 24, 32] }, // secretscan:allow
+    typed: { apiVersion: 6, uses: ["cipher-key"], keyEncodings: ["hex", "base64"], keyBytes: [16, 24, 32] },
   });
 });
 
 test("migrate: a consent line, and an update that adds it re-asks like any new reach", () => {
-  assert.deepEqual(contract.capabilities.needsApproval, ["download", "drm", "channels", "migrate", "tracking", "nuvio", "syncProvider", "library", "playerPanelTab", "playerControl", "room", "schedule", "ai", "identity", "notifications"]);
+  assert.deepEqual(contract.capabilities.needsApproval, ["download", "drm", "channels", "migrate", "tracking", "nuvio", "syncProvider", "library", "playerPanelTab", "playerControl", "room", "schedule", "ai", "identity", "notifications", "coins", "pluginStore"]);
   assert.deepEqual(consentLines(validateManifest(manifest({ apiVersion: 6, capabilities: ["search", "resolve", "migrate"] })).manifest),
     [{ text: "Revisar lo que tienes guardado (biblioteca, historial, favoritos) para pasarlo a este plugin", danger: false }]);
 });
@@ -1876,7 +1896,7 @@ function openSealed(sealed, binding, name, privateKey, publicKeyHex) {
   const tag = raw.subarray(raw.length - 16);
   const ephPub = createPublicKey({ key: Buffer.concat([SEAL_SPKI_PREFIX, ephPubRaw]), format: "der", type: "spki" });
   const shared = diffieHellman({ privateKey, publicKey: ephPub });
-  const key = Buffer.from(hkdfSync("sha256", shared, Buffer.concat([ephPubRaw, Buffer.from(publicKeyHex, "hex")]), "kino-sealed:v1", 32)); // secretscan:allow
+  const key = Buffer.from(hkdfSync("sha256", shared, Buffer.concat([ephPubRaw, Buffer.from(publicKeyHex, "hex")]), "kino-sealed:v1", 32));
   const decipher = createDecipheriv("aes-256-gcm", key, nonce);
   decipher.setAuthTag(tag);
   decipher.setAAD(Buffer.from(`kino-sealed:v1|${binding}|${name}`, "utf8"));
@@ -1942,8 +1962,8 @@ test("seal(): 1..8192 UTF-8 bytes seal; validate takes up to 4096 at apiVersion 
   }
 });
 
-test("secrets: typed cipher keys from apiVersion 6, with the app's Spanish messages", () => { // secretscan:allow
-  const typed = (o = {}) => ({ seal: FAKE_SEAL, use: "cipher-key", encoding: "hex", ...o }); // secretscan:allow
+test("secrets: typed cipher keys from apiVersion 6, with the app's Spanish messages", () => {
+  const typed = (o = {}) => ({ seal: FAKE_SEAL, use: "cipher-key", encoding: "hex", ...o });
   const ok = validateManifest(manifest({ apiVersion: 6, secrets: { desKey: typed(), aesKey: typed({ encoding: "base64" }), token: FAKE_SEAL } }));
   assert.equal(ok.ok, true);
   assert.deepEqual(ok.manifest.secrets, { desKey: FAKE_SEAL, aesKey: FAKE_SEAL, token: FAKE_SEAL });
@@ -1952,7 +1972,7 @@ test("secrets: typed cipher keys from apiVersion 6, with the app's Spanish messa
   const bad = (secrets, api = 6) => validateManifest(manifest({ apiVersion: api, secrets }));
   const msg = (message) => ({ ok: false, field: "secrets", message });
   assert.deepEqual(bad({ desKey: typed() }, 4), msg('The secret "desKey" is not a valid Kino seal'));
-  for (const use of [undefined, "key", "CIPHER-KEY", 1, null]) assert.deepEqual(bad({ desKey: typed({ use }) }), msg('The secret "desKey" only takes "use": "cipher-key"'), String(use)); // secretscan:allow
+  for (const use of [undefined, "key", "CIPHER-KEY", 1, null]) assert.deepEqual(bad({ desKey: typed({ use }) }), msg('The secret "desKey" only takes "use": "cipher-key"'), String(use));
   for (const encoding of [undefined, "utf8", "HEX", "base64url", 1, null]) assert.deepEqual(bad({ desKey: typed({ encoding }) }), msg('The secret "desKey" must have "encoding": "hex" or "base64"'), String(encoding));
   assert.deepEqual(bad({ desKey: typed({ alg: "des-ede3-ecb" }) }), msg('The secret "desKey" has an unknown field: "alg"'));
   assert.deepEqual(bad({ desKey: typed({ ["x".repeat(60)]: 1 }) }), msg(`The secret "desKey" has an unknown field: "${"x".repeat(40)}"`));
@@ -1994,32 +2014,32 @@ test("decodeCipherKey matches the app: base64 padding, url-safe and whitespace; 
   assert.equal(decodeCipherKey(k1 + k2 + k1, "hex").length, 24);
 });
 
-test("seal.mjs's CLI: --use cipher-key --encoding hex prints the typed object; bad flag combinations exit 2", () => { // secretscan:allow
+test("seal.mjs's CLI: --use cipher-key --encoding hex prints the typed object; bad flag combinations exit 2", () => {
   const { publicKeyHex } = testKeypair();
   const script = join(here, "..", "seal.mjs");
   const run = (args, input) => spawnSync(process.execPath, [script, ...args], { input, encoding: "utf8", env: { ...process.env, KINO_SEAL_PUBLIC_KEY: publicKeyHex } });
-  const ok = run(["--repo", "o/r", "--name", "desKey", "--use", "cipher-key", "--encoding", "hex"], "0123456789abcdef23456789abcdef01456789abcdef0123\n"); // secretscan:allow
+  const ok = run(["--repo", "o/r", "--name", "desKey", "--use", "cipher-key", "--encoding", "hex"], "0123456789abcdef23456789abcdef01456789abcdef0123\n");
   assert.equal(ok.status, 0, ok.stderr);
   const printed = JSON.parse(ok.stdout.trim());
   assert.equal(printed.use, "cipher-key");
   assert.equal(printed.encoding, "hex");
   assert.ok(printed.seal.startsWith("kino-sealed:v1:"));
-  assert.equal(run(["--repo", "o/r", "--name", "k", "--use", "key", "--encoding", "hex"], "00\n").status, 2); // secretscan:allow
+  assert.equal(run(["--repo", "o/r", "--name", "k", "--use", "key", "--encoding", "hex"], "00\n").status, 2);
   assert.equal(run(["--repo", "o/r", "--name", "k", "--use", "cipher-key"], "00\n").status, 2);
   assert.equal(run(["--repo", "o/r", "--name", "k", "--encoding", "hex"], "00\n").status, 2);
-  const wrongSize = run(["--repo", "o/r", "--name", "k", "--use", "cipher-key", "--encoding", "hex"], "0011\n"); // secretscan:allow
+  const wrongSize = run(["--repo", "o/r", "--name", "k", "--use", "cipher-key", "--encoding", "hex"], "0011\n");
   assert.equal(wrongSize.status, 1);
   assert.match(wrongSize.stderr, /16, 24 or 32 bytes/);
   assert.equal(wrongSize.stdout, "");
 });
 
-test("validate: a typed secret whose .kino-secrets.json value isn't a key of the right size is a problem", async () => { // secretscan:allow
+test("validate: a typed secret whose .kino-secrets.json value isn't a key of the right size is a problem", async () => {
   const dir = mkdtempSync(join(tmpdir(), "kino-typed-"));
-  writeFileSync(join(dir, "kino-plugin.json"), manifest({ apiVersion: 6, secrets: { desKey: { seal: FAKE_SEAL, use: "cipher-key", encoding: "hex" } } })); // secretscan:allow
+  writeFileSync(join(dir, "kino-plugin.json"), manifest({ apiVersion: 6, secrets: { desKey: { seal: FAKE_SEAL, use: "cipher-key", encoding: "hex" } } }));
   writeFileSync(join(dir, "plugin.js"), "export async function search(){ return [] }\nexport async function resolve(){ return null }\n");
   writeFileSync(join(dir, ".kino-secrets.json"), JSON.stringify({ desKey: "00".repeat(20) }));
   const r = await validate(dir);
-  assert.ok(r.problems.some((p) => p === 'secret "desKey" in .kino-secrets.json is not a 16, 24 or 32-byte key in hex'), JSON.stringify(r.problems)); // secretscan:allow
+  assert.ok(r.problems.some((p) => p === 'secret "desKey" in .kino-secrets.json is not a 16, 24 or 32-byte key in hex'), JSON.stringify(r.problems));
   writeFileSync(join(dir, ".kino-secrets.json"), JSON.stringify({ desKey: "0123456789abcdef23456789abcdef01456789abcdef0123" }));
   assert.ok(!(await validate(dir)).problems.some((p) => p.includes("desKey")));
 });
@@ -2143,10 +2163,10 @@ function withSecretsFile(values) {
   return { dir, file: join(dir, ".kino-secrets.json") };
 }
 
-/** A manifest object with `secrets` declared for each key of [plainValues], and its `.kino-secrets.json`. */ // secretscan:allow
+/** A manifest object with `secrets` declared for each key of [plainValues], and its `.kino-secrets.json`. */
 function sealedKino(plainValues, extra = {}) {
   const { dir, file } = withSecretsFile(plainValues);
-  const m = JSON.parse(manifest({ hosts: ["api.example.com"], secrets: Object.fromEntries(Object.keys(plainValues).map((k) => [k, "x"])), ...extra })); // secretscan:allow
+  const m = JSON.parse(manifest({ hosts: ["api.example.com"], secrets: Object.fromEntries(Object.keys(plainValues).map((k) => [k, "x"])), ...extra }));
   const { kino } = createKino(m, { secretsFile: file, fetchImpl: () => { throw new Error("must not reach the network"); } });
   return { kino, dir };
 }
@@ -2305,7 +2325,7 @@ test("a sealed request may follow a redirect within the declared hosts, and is r
 
 test("a secret never goes to a server the plugin's own settings point at, even though ordinary fetch would allow it", async () => {
   const { dir } = withSecretsFile({ apiKey: "k-123" });
-  const withServer = JSON.parse(manifest({ settings: [{ key: "server", label: "Servidor", type: "url", required: true }], secrets: { apiKey: "x" } })); // secretscan:allow
+  const withServer = JSON.parse(manifest({ settings: [{ key: "server", label: "Servidor", type: "url", required: true }], secrets: { apiKey: "x" } }));
   const { kino } = createKino(withServer, { config: { server: "https://typed.example.com" }, secretsFile: join(dir, ".kino-secrets.json"), fetchImpl: () => { throw new Error("must not reach the network"); } });
   const marker = kino.secret("apiKey");
   await assert.rejects(
@@ -2345,7 +2365,7 @@ test("a cookie value equal to an opened secret comes back as its marker", async 
 });
 
 test("the --replay 'no recorded answer' error redacts a sealed value instead of just cutting it", async () => {
-  const { dir } = withSecretsFile({ apiKey: "SUPER-SECRET-VALUE-12345" }); // secretscan:allow
+  const { dir } = withSecretsFile({ apiKey: "SUPER-SECRET-VALUE-12345" });
   const m = JSON.parse(manifest({ hosts: ["api.example.com"], secrets: { apiKey: "x" } }));
   const emptyTape = join(dir, "empty-tape.json");
   writeFileSync(emptyTape, JSON.stringify([]));
@@ -2358,7 +2378,7 @@ test("the --replay 'no recorded answer' error redacts a sealed value instead of 
 });
 
 test("--record never writes a plain secret value (or a random marker another runtime won't recognize) to the tape file, and --replay round-trips", async () => {
-  const { dir } = withSecretsFile({ apiKey: "SUPER-SECRET-VALUE-12345" }); // secretscan:allow
+  const { dir } = withSecretsFile({ apiKey: "SUPER-SECRET-VALUE-12345" });
   const m = JSON.parse(manifest({ hosts: ["api.example.com"], secrets: { apiKey: "x" } }));
   const secretsFile = join(dir, ".kino-secrets.json");
   const tape = join(dir, "tape.json");
@@ -2491,9 +2511,9 @@ test("the size cap is checked before substitution for a form body too, like the 
 test("kino.crypto: a sealed key decrypts what that key encrypted", () => {
   const { kino } = sealedKino({ aesKey: "0123456789abcdef" });
   const hexIv = "000102030405060708090a0b0c0d0e0f";
-  const ct = kino.crypto.encrypt("aes-128-cbc", { key: "0123456789abcdef", iv: hexIv, ivEncoding: "hex", data: "hola mundo" }); // secretscan:allow
+  const ct = kino.crypto.encrypt("aes-128-cbc", { key: "0123456789abcdef", iv: hexIv, ivEncoding: "hex", data: "hola mundo" });
   const marker = kino.secret("aesKey");
-  const out = kino.crypto.decrypt("aes-128-cbc", { key: marker, iv: hexIv, ivEncoding: "hex", data: ct }); // secretscan:allow
+  const out = kino.crypto.decrypt("aes-128-cbc", { key: marker, iv: hexIv, ivEncoding: "hex", data: ct });
   assert.equal(out, "hola mundo");
 });
 
@@ -2501,7 +2521,7 @@ test("kino.crypto: a sealed cipher key must be exactly one marker", () => {
   const { kino } = sealedKino({ desKey: "0123456789abcdefghijklmn" });
   const m = kino.secret("desKey");
   const refused = "a sealed value can't be used here";
-  assert.throws(() => kino.crypto.encrypt("des-ede3-cbc", { key: m + "A".repeat(16), iv: "0001020304050607", ivEncoding: "hex", data: "hola" }), // secretscan:allow
+  assert.throws(() => kino.crypto.encrypt("des-ede3-cbc", { key: m + "A".repeat(16), iv: "0001020304050607", ivEncoding: "hex", data: "hola" }),
     (e) => e.code === "crypto_error" && e.message === refused);
   assert.throws(() => kino.crypto.encrypt("des-ede3-ecb", { key: m + m + m, data: "hola" }),
     (e) => e.code === "crypto_error" && e.message === refused);
@@ -2518,8 +2538,8 @@ test("kino.crypto: a sealed key is refused for a non-AES cipher, like the app", 
   const m = kino.secret("desKey");
   const refused = (fn) => assert.throws(fn, (e) => e.code === "crypto_error" && e.message === "a sealed value can't be used here");
   refused(() => kino.crypto.encrypt("des-ede3-ecb", { key: m, data: "hola" }));
-  refused(() => kino.crypto.decrypt("des-ede3-cbc", { key: m, iv: "0001020304050607", ivEncoding: "hex", data: "AAAAAAAAAAA=" })); // secretscan:allow
-  refused(() => kino.crypto.encrypt("des-ede3-ecb", { key: m, keyEncoding: "hex", data: "hola" })); // secretscan:allow
+  refused(() => kino.crypto.decrypt("des-ede3-cbc", { key: m, iv: "0001020304050607", ivEncoding: "hex", data: "AAAAAAAAAAA=" }));
+  refused(() => kino.crypto.encrypt("des-ede3-ecb", { key: m, keyEncoding: "hex", data: "hola" }));
   // A plain des-ede3 key works as always.
   assert.doesNotThrow(() => kino.crypto.encrypt("des-ede3-ecb", { key: "0123456789abcdefghijklmn", data: "hola" }));
 });
@@ -2539,17 +2559,17 @@ test("kino.crypto: a marker in data, iv or aad is refused whatever the key is", 
   refused(() => kino.crypto.hash("md5", k));
   refused(() => kino.crypto.hmac("sha256", "key", k));
   refused(() => kino.crypto.encrypt("aes-128-cbc", { key: k, iv, data: "hola" }));
-  refused(() => kino.crypto.encrypt("aes-128-cbc", { key: "2b7e151628aed2a6abf7158809cf4f3c", keyEncoding: "hex", iv, data: "hola" })); // secretscan:allow
-  refused(() => kino.crypto.encrypt("aes-128-gcm", { key: k, iv: "000102030405060708090a0b", ivEncoding: "hex", aad: iv, data: "hola" })); // secretscan:allow
+  refused(() => kino.crypto.encrypt("aes-128-cbc", { key: "2b7e151628aed2a6abf7158809cf4f3c", keyEncoding: "hex", iv, data: "hola" }));
+  refused(() => kino.crypto.encrypt("aes-128-gcm", { key: k, iv: "000102030405060708090a0b", ivEncoding: "hex", aad: iv, data: "hola" }));
 });
 
 test("kino.crypto: an opened value comes back redacted even from an unrelated later call", () => {
   const { kino } = sealedKino({ hmacKey: "hm4c-k3y" });
   const m = kino.secret("hmacKey");
   kino.crypto.hmac("sha256", m, "x"); // opens hmacKey
-  const plainKeyHex = "2b7e151628aed2a6abf7158809cf4f3c"; // secretscan:allow
-  const ct = kino.crypto.encrypt("aes-128-ecb", { key: plainKeyHex, keyEncoding: "hex", data: "hm4c-k3y" }); // secretscan:allow
-  const out = kino.crypto.decrypt("aes-128-ecb", { key: plainKeyHex, keyEncoding: "hex", data: ct }); // secretscan:allow
+  const plainKeyHex = "2b7e151628aed2a6abf7158809cf4f3c";
+  const ct = kino.crypto.encrypt("aes-128-ecb", { key: plainKeyHex, keyEncoding: "hex", data: "hm4c-k3y" });
+  const out = kino.crypto.decrypt("aes-128-ecb", { key: plainKeyHex, keyEncoding: "hex", data: ct });
   assert.equal(out, m);
 });
 
@@ -2558,9 +2578,9 @@ test("kino.crypto: an opened value comes back redacted even from an unrelated la
 // request set, a server echoing it to a request that carried no marker).
 test("redaction covers a declared value this runtime never used: a crypto answer", () => {
   const { kino } = sealedKino({ hmacKey: "hm4c-k3y" });
-  const plainKeyHex = "2b7e151628aed2a6abf7158809cf4f3c"; // secretscan:allow
-  const ct = kino.crypto.encrypt("aes-128-ecb", { key: plainKeyHex, keyEncoding: "hex", data: "hm4c-k3y" }); // secretscan:allow
-  assert.equal(kino.crypto.decrypt("aes-128-ecb", { key: plainKeyHex, keyEncoding: "hex", data: ct }), kino.secret("hmacKey")); // secretscan:allow
+  const plainKeyHex = "2b7e151628aed2a6abf7158809cf4f3c";
+  const ct = kino.crypto.encrypt("aes-128-ecb", { key: plainKeyHex, keyEncoding: "hex", data: "hm4c-k3y" });
+  assert.equal(kino.crypto.decrypt("aes-128-ecb", { key: plainKeyHex, keyEncoding: "hex", data: ct }), kino.secret("hmacKey"));
 });
 
 test("redaction covers a cookie an earlier runtime's request set, before this runtime uses the secret", async () => {
@@ -2590,7 +2610,7 @@ test("redaction knows the JSON echo forms: '/' as '\\/' and non-ASCII as \\uXXXX
   const key = "ab/cd+ef==";
   const accented = "clé/ñ\u0001";
   const { dir } = withSecretsFile({ key, accented, emoji: "k\u{1F600}y" });
-  const m = JSON.parse(manifest({ hosts: ["api.example.com"], secrets: { key: "x", accented: "x", emoji: "x" } })); // secretscan:allow
+  const m = JSON.parse(manifest({ hosts: ["api.example.com"], secrets: { key: "x", accented: "x", emoji: "x" } }));
   const echoes = [
     ["ab\\/cd+ef==", "key"],
     ["cl\\u00e9\\/\\u00f1\\u0001", "accented"],
@@ -2786,7 +2806,7 @@ test("the kit's M3U reader drops hidden and refused entries during the parse, ne
 const DRM_NONE = { drmKeyId: "", drmKey: "", drmLicenseUrl: "", drmLicenseHeaders: {} };
 const drmOf = (e) => ({ drmKeyId: e.drmKeyId, drmKey: e.drmKey, drmLicenseUrl: e.drmLicenseUrl, drmLicenseHeaders: e.drmLicenseHeaders });
 const KID = "0123456789abcdef0123456789abcdef";
-const KEY = "fedcba9876543210fedcba9876543210"; // secretscan:allow
+const KEY = "fedcba9876543210fedcba9876543210";
 
 test("the kit's M3U reader decodes UTF-16 lists, with a BOM or without one, like their UTF-8 text", () => {
   const sample = "#EXTM3U\n#EXTINF:-1 group-title=\"Noticias\",Señal Ñ\nhttps://live.example.com/n.m3u8\n";
@@ -2830,7 +2850,7 @@ test("the kit's M3U reader takes the header's guides: http(s) only, deduplicated
   assert.deepEqual(parseM3u(Buffer.from("\uFEFF#EXTM3U x-tvg-url=\"https://epg.example.com/g.xml\"\n#EXTINF:-1,A\nhttps://x.example.com/a\n")).epgUrls, ["https://epg.example.com/g.xml"]);
 });
 
-test("the kit's M3U reader takes a KODIPROP ClearKey license, hex or JSON, and drops a bad one or another key system", () => { // secretscan:allow
+test("the kit's M3U reader takes a KODIPROP ClearKey license, hex or JSON, and drops a bad one or another key system", () => {
   const one = (type, key) => parseM3u(`#EXTM3U\n#EXTINF:-1,C\n#KODIPROP:inputstream.adaptive.license_type=${type}\n#KODIPROP:inputstream.adaptive.license_key=${key}\nhttps://live.example.com/p.mpd\n`).entries[0];
   assert.deepEqual(drmOf(one("clearkey", `${KID}:${KEY}`)), { ...DRM_NONE, drmKeyId: KID, drmKey: KEY });
   assert.deepEqual(drmOf(one("org.w3.clearkey", `${KID.toUpperCase()}:${KEY}`)), { ...DRM_NONE, drmKeyId: KID, drmKey: KEY });
@@ -3384,7 +3404,7 @@ test("streamHosts any covers a movie's side subtitles and audio too, never a cha
 /** Like sealedKino, but [encodings] names typed cipher keys ({ seal, use, encoding } in the manifest). */
 function typedKino(plainValues, encodings, fetchImpl = () => { throw new Error("must not reach the network"); }) {
   const { dir, file } = withSecretsFile(plainValues);
-  const secrets = Object.fromEntries(Object.keys(plainValues).map((k) => [k, encodings[k] ? { seal: "x", use: "cipher-key", encoding: encodings[k] } : "x"])); // secretscan:allow
+  const secrets = Object.fromEntries(Object.keys(plainValues).map((k) => [k, encodings[k] ? { seal: "x", use: "cipher-key", encoding: encodings[k] } : "x"]));
   const m = JSON.parse(manifest({ apiVersion: 6, hosts: ["api.example.com"], secrets }));
   const { kino } = createKino(m, { secretsFile: file, fetchImpl });
   return { kino, dir };
@@ -3394,10 +3414,10 @@ const DES_HEX = "0123456789abcdef23456789abcdef01456789abcdef0123";
 const AES_B64 = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
 const REFUSED = (e) => e.code === "crypto_error" && e.message === "a sealed value can't be used here";
 
-test("kino.crypto: a typed hex key is a whole des-ede3 key, whatever keyEncoding the JS passes", () => { // secretscan:allow
+test("kino.crypto: a typed hex key is a whole des-ede3 key, whatever keyEncoding the JS passes", () => {
   const { kino } = typedKino({ desKey: DES_HEX }, { desKey: "hex" });
   const m = kino.secret("desKey");
-  const want = kino.crypto.encrypt("des-ede3-ecb", { key: DES_HEX, keyEncoding: "hex", data: "hola" }); // secretscan:allow
+  const want = kino.crypto.encrypt("des-ede3-ecb", { key: DES_HEX, keyEncoding: "hex", data: "hola" });
   for (const keyEncoding of [undefined, "utf8", "base64"]) assert.equal(kino.crypto.encrypt("des-ede3-ecb", { key: m, keyEncoding, data: "hola" }), want);
   assert.equal(kino.crypto.decrypt("des-ede3-ecb", { key: m, data: want }), "hola");
 });
@@ -3405,9 +3425,9 @@ test("kino.crypto: a typed hex key is a whole des-ede3 key, whatever keyEncoding
 test("kino.crypto: a typed base64 key works for AES; a wrong size names the size", () => {
   const { kino } = typedKino({ aesKey: AES_B64, shortKey: "00112233445566778899aabbccddeeff" }, { aesKey: "base64", shortKey: "hex" });
   const iv = "000102030405060708090a0b0c0d0e0f";
-  assert.equal(kino.crypto.encrypt("aes-256-cbc", { key: kino.secret("aesKey"), iv, ivEncoding: "hex", data: "hola" }), // secretscan:allow
-    kino.crypto.encrypt("aes-256-cbc", { key: AES_B64, keyEncoding: "base64", iv, ivEncoding: "hex", data: "hola" })); // secretscan:allow
-  assert.throws(() => kino.crypto.encrypt("des-ede3-ecb", { key: kino.secret("shortKey"), data: "hola" }), // secretscan:allow
+  assert.equal(kino.crypto.encrypt("aes-256-cbc", { key: kino.secret("aesKey"), iv, ivEncoding: "hex", data: "hola" }),
+    kino.crypto.encrypt("aes-256-cbc", { key: AES_B64, keyEncoding: "base64", iv, ivEncoding: "hex", data: "hola" }));
+  assert.throws(() => kino.crypto.encrypt("des-ede3-ecb", { key: kino.secret("shortKey"), data: "hola" }),
     (e) => e.code === "crypto_error" && e.message === "the des-ede3-ecb key must be 24 bytes, it is 16");
 });
 
@@ -3416,8 +3436,8 @@ test("kino.crypto: a typed key is still exactly one marker, and never data, iv, 
   const m = kino.secret("desKey"), h = kino.secret("hmacKey");
   assert.throws(() => kino.crypto.encrypt("des-ede3-ecb", { key: m + "A", data: "hola" }), REFUSED);
   assert.throws(() => kino.crypto.encrypt("des-ede3-ecb", { key: "x" + m, data: "hola" }), REFUSED);
-  assert.throws(() => kino.crypto.encrypt("aes-128-ecb", { key: "0123456789abcdef", data: m }), REFUSED); // secretscan:allow
-  assert.throws(() => kino.crypto.encrypt("aes-128-cbc", { key: "0123456789abcdef", iv: m, data: "hola" }), REFUSED); // secretscan:allow
+  assert.throws(() => kino.crypto.encrypt("aes-128-ecb", { key: "0123456789abcdef", data: m }), REFUSED);
+  assert.throws(() => kino.crypto.encrypt("aes-128-cbc", { key: "0123456789abcdef", iv: m, data: "hola" }), REFUSED);
   assert.throws(() => kino.crypto.hmac("sha256", m, "datos"), REFUSED);
   assert.throws(() => kino.crypto.hmac("sha256", h + m, "datos"), REFUSED);
   assert.throws(() => kino.crypto.pbkdf2("sha256", m, "salt", 10, 32), REFUSED);
@@ -3427,10 +3447,10 @@ test("kino.crypto: a typed key is still exactly one marker, and never data, iv, 
 
 test("kino.crypto: an untyped sealed key is still refused for des-ede3 at apiVersion 6", () => {
   const { kino } = typedKino({ desKey: "0123456789abcdefghijklmn" }, {});
-  assert.throws(() => kino.crypto.encrypt("des-ede3-ecb", { key: kino.secret("desKey"), data: "hola" }), REFUSED); // secretscan:allow
+  assert.throws(() => kino.crypto.encrypt("des-ede3-ecb", { key: kino.secret("desKey"), data: "hola" }), REFUSED);
 });
 
-test("a typed key's bytes, in hex of either case or base64, come back from a server as the marker", async () => { // secretscan:allow
+test("a typed key's bytes, in hex of either case or base64, come back from a server as the marker", async () => {
   const echo = [DES_HEX.toUpperCase(), Buffer.from(DES_HEX, "hex").toString("base64")].join("|");
   const { kino } = typedKino({ desKey: DES_HEX }, { desKey: "hex" }, async () => new Response(echo));
   const m = kino.secret("desKey");
@@ -3845,7 +3865,7 @@ test("from apiVersion 13 an action's setSettings may fill a password: kept, scru
     { key: "confirm", label: "Confirmar", type: "action" },
   ];
   const at = (apiVersion) => JSON.parse(manifest({ apiVersion, settings }));
-  const key = "0123456789abcdef".repeat(4); // secretscan:allow
+  const key = "0123456789abcdef".repeat(4);
   const run = (answer, apiVersion = 13, scrub = (t) => t) => { const drops = []; return { out: checkSettingsOutput("action", answer, at(apiVersion), scrub, (d) => drops.push(d), "create"), drops }; };
   const ok = run({ message: `Clave creada: ${key}`, setSettings: { syncKey: ` ${key} `, chatId: "42" } }).out;
   assert.deepEqual(ok, { message: "Clave creada:", refresh: false, clearSettings: [], setSettings: { syncKey: key, chatId: "42" } });
@@ -3887,7 +3907,7 @@ test("G5: setSettings and hide read the apiVersion of the settings list in effec
     assert.ok(r.ok, JSON.stringify(r));
     return r.manifest;
   };
-  const key = "0123456789abcdef".repeat(4); // secretscan:allow
+  const key = "0123456789abcdef".repeat(4);
   const set = (m, s) => checkSettingsOutput("action", { message: `Clave ${key}`, setSettings: s }, m, (t) => t, () => {}, "create");
   // The list came from enhancements."14": filled as a 14 plugin's, only passwords that list declares, never echoed.
   const e = merged({ 14: { settings: listAt14 } });
@@ -4276,7 +4296,7 @@ test("the guide's kino.fetch limits row names every fetch limit the app enforces
 // apiVersion 5 is Kino 0.9.45's (the author's signature, nothing else): a v5 manifest using an apiVersion 6
 // field is refused, or reads it exactly as those apps do (an unknown field, ignored).
 test("apiVersion 5 manifests read as Kino 0.9.45 and 0.9.46 read them: every apiVersion 6 field is refused or ignored", () => {
-  assert.equal(contract.maxApiVersion, 15);
+  assert.equal(contract.maxApiVersion, 27);
   const v5 = (extra) => validateManifest(manifest({ apiVersion: 5, ...extra }));
   const ignored = v5({ debug: true, section: { label: "Mía" }, theme: { accent: "#3D5AFE" } });
   assert.equal(ignored.ok, true);
@@ -4285,7 +4305,7 @@ test("apiVersion 5 manifests read as Kino 0.9.45 and 0.9.46 read them: every api
   assert.deepEqual(ignored.manifest.theme, {});
   assert.equal(v5({ debug: "yes", section: 7, theme: "red" }).ok, true);
   assert.deepEqual(v5({ capabilities: ["search", "resolve", "migrate"] }), { ok: false, field: "capabilities", message: 'The "migrate" capability needs apiVersion 6' });
-  const typed = v5({ secrets: { desKey: { seal: FAKE_SEAL, use: "cipher-key", encoding: "hex" } } }); // secretscan:allow
+  const typed = v5({ secrets: { desKey: { seal: FAKE_SEAL, use: "cipher-key", encoding: "hex" } } });
   assert.deepEqual(typed, { ok: false, field: "secrets", message: 'The secret "desKey" is not a valid Kino seal' });
   const status = v5({ settings: [{ key: "linked", label: "Estado", type: "status" }] });
   assert.equal(status.ok, false);
@@ -4298,7 +4318,7 @@ test("apiVersion 5 manifests read as Kino 0.9.45 and 0.9.46 read them: every api
 // apiVersion 5 shipped in Kino 0.9.45 (signature.fromApp); 6 first ships in 0.9.50 (nothing ships until the built-in source removal is done).
 test("each apiVersion above 4 names the Kino it first ships in, and validate's note reads it", async () => {
   assert.equal(contract.manifest.signature.fromApp, "0.9.45");
-  assert.deepEqual(contract.apiVersionFromApp, { "6": "0.9.50", "7": "0.9.51", "8": "0.9.54", "9": "0.9.55", "10": "0.9.65", "11": "0.9.66", "12": "0.9.74", "13": "0.9.74", "14": "0.9.74", "15": "TBD" });
+  assert.deepEqual(contract.apiVersionFromApp, { "6": "0.9.50", "7": "0.9.51", "8": "0.9.54", "9": "0.9.55", "10": "0.9.65", "11": "0.9.66", "12": "0.9.74", "13": "0.9.74", "14": "0.9.74", "15": "0.9.77", "16": "0.9.78", "17": "0.9.81", "18": "0.9.81", "19": "0.9.81", "20": "0.9.81", "21": "0.9.82", "22": "0.9.83", "23": "0.9.83", "24": "0.9.85", "25": "0.9.86", "26": "0.9.87", "27": "0.9.88" });
   const dir = mkdtempSync(join(tmpdir(), "kino-from-app-"));
   try {
     writeFileSync(join(dir, "plugin.js"), "export async function search(){ return { items: [] } }\nexport async function resolve(){ return { url: 'https://example.com/a.m3u8' } }");
@@ -4563,8 +4583,9 @@ test("browser pages: its own wider line, true keeps the old one, and page answer
   assert.equal(v({ browser: true }).manifest.browserPages, false);
   assert.equal(v({ browser: "pages" }, 5).manifest.browser, false);
   assert.deepEqual(v({ browser: "page" }), { ok: false, field: "browser", message: contract.manifest.browser.notBooleanMessage });
-  assert.equal(contract.maxApiVersion, 15);
-  assert.equal(v({}, 16).ok, false);
+  assert.equal(contract.maxApiVersion, 27);
+  assert.equal(v({}, 27).ok, true);
+  assert.equal(v({}, 28).ok, false);
   const dir = mkdtempSync(join(tmpdir(), "kino-browser-page-"));
   try {
     writeFileSync(join(dir, "plugin.js"), "export async function search(q){ try { await kino.browser.page('https://example.com/?s=' + q, { waitFor: 'article' }) } catch (e) { return [{ id: e.code, title: e.code, ref: e.code, kind: 'movie' }] } }\nexport async function resolve(){ return { url: 'https://example.com/a.m3u8' } }");
@@ -4836,7 +4857,7 @@ test("meta: numbers are read the way Android's org.json reads them", () => {
 
 test("meta: run.mjs builds the app's query (TitleMetaQuery.json), never from a ref", () => {
   const env = { KINO_LANG: "es" };
-  // The same key order as the app: type, ids (imdb, tmdb, kitsu, mal, anilist), id, lang. // secretscan:allow
+  // The same key order as the app: type, ids (imdb, tmdb, kitsu, mal, anilist), id, lang.
   assert.equal(JSON.stringify(metaArg(["kitsu:1376", "series", "tt0944947", "tmdb:1399"], env)), '{"type":"series","ids":{"imdb":"tt0944947","tmdb":1399,"kitsu":1376},"id":"kitsu:1376","lang":"es"}');
   assert.deepEqual(metaArg(["tt0133093"], env), { type: "movie", ids: { imdb: "tt0133093" }, lang: "es" });
   assert.deepEqual(metaArg(["tmdb:603", "lang=en"], env), { type: "movie", ids: { tmdb: 603 }, lang: "en" });
@@ -5104,7 +5125,7 @@ test("catalogOnly: resolve may be left out, one of home/browse/search/meta is ne
   assert.deepEqual(validateManifest(manifest({ capabilities: ["home"] })), { ok: false, field: "capabilities", message: 'The plugin must declare "resolve"' });
   assert.equal(contract.additiveFromApp.catalogOnly, "0.9.54");
   // No apiVersion of its own: catalogOnly is valid at every apiVersion.
-  assert.equal(contract.apiVersion, 15);
+  assert.equal(contract.apiVersion, 27);
 });
 
 test("catalogOnly: validate prints the consent line and what an older Kino does with it", async () => {
@@ -5687,7 +5708,7 @@ test("the consent sheet names a sync provider as the app does: always red, the p
 });
 
 test("a standalone set may carry socket, storageLarge, catalog and qrScan (apiVersion 13), as ManifestParser.isStandaloneSet", () => {
-  assert.deepEqual(contract.capabilities.standaloneSupplements, ["socket", "storageLarge", "catalog", "qrScan", "room", "schedule", "ai", "shared", "playerControl", "identity", "notifications"]);
+  assert.deepEqual(contract.capabilities.standaloneSupplements, ["socket", "storageLarge", "catalog", "qrScan", "room", "schedule", "ai", "shared", "playerControl", "identity", "notifications", "coins", "files", "progress"]);
   // Every supplement is declarative but schedule (Task 8q), which exports job.
   for (const c of contract.capabilities.standaloneSupplements) if (c !== "schedule") assert.ok(contract.capabilities.declarative.includes(c), c);
   const v = (capabilities, extra = {}) => validateManifest(JSON.stringify({ id: "sp", name: "S", version: "1.0.0", apiVersion: 13, entry: "plugin.js", hosts: ["x.example"], capabilities, ...extra }));
@@ -5771,7 +5792,7 @@ test("kino.fetch maxBytes never shows the first characters of a sealed value an 
 test("kino.fetch maxBytes never leaks a sealed value when earlier echoes shrink under redaction (Task 7i-1 fix round 2, N1)", async () => {
   // The re-review's exploit (shift.mjs): k whole echoes before the cut are replaced by a shorter marker, which used to slide
   // a partly read value inside the cut.
-  const key = "sk_" + "live_9f8e7d6c5b4a39281706f5e4d3c2b1a0ZZYYXXWWVVUUTTSSRRQQPPOONN"; // split: a fake key, kept out of secret scanners // secretscan:allow
+  const key = ["sk", "live", "9f8e7d6c5b4a39281706f5e4d3c2b1a0ZZYYXXWWVVUUTTSSRRQQPPOONN"].join("_");
   const fetchImpl = async (url) => {
     const u = new URL(String(url));
     return new Response("E:" + u.searchParams.getAll("v").join(",") + ";" + "z".repeat(400), { status: 200, headers: { "content-type": "text/plain; charset=utf-8" } });
@@ -5795,7 +5816,7 @@ test("kino.fetch maxBytes never leaks a sealed value when earlier echoes shrink 
 });
 
 test("kino.fetch maxBytes never leaks a sealed value from a UTF-16 body either (Task 7i-1 fix round 2, N1)", async () => {
-  const key = "sk_" + "live_9f8e7d6c5b4a39281706f5e4d3c2b1a0ZZYYXXWWVVUUTTSSRRQQPPOONN"; // split: a fake key, kept out of secret scanners // secretscan:allow
+  const key = ["sk", "live", "9f8e7d6c5b4a39281706f5e4d3c2b1a0ZZYYXXWWVVUUTTSSRRQQPPOONN"].join("_");
   const fetchImpl = async (url) => {
     const u = new URL(String(url));
     const text = "E:" + u.searchParams.getAll("v").join(",") + ";" + "z".repeat(200);
@@ -5817,7 +5838,7 @@ test("kino.fetch maxBytes never leaks a sealed value from a UTF-16 body either (
 
 test("kino.fetch maxBytes with sealed values reads whole, so a stateful charset cannot hide a partly read value (Task 7i-1 fix round 3, R1)", async () => {
   // The re-review's iso2022.mjs: escape bytes that decode to nothing used to push a value past a partial read.
-  const key = "sk_" + "live_9f8e7d6c5b4a39281706f5e4d3c2b1a0ZZYYXXWWVVUUTTSSRRQQPPOONN"; // split: a fake key, kept out of secret scanners // secretscan:allow
+  const key = ["sk", "live", "9f8e7d6c5b4a39281706f5e4d3c2b1a0ZZYYXXWWVVUUTTSSRRQQPPOONN"].join("_");
   const fetchImpl = async (url) => {
     const u = new URL(String(url));
     const body = Buffer.from("E:" + u.searchParams.getAll("v").join(",") + ";" + "z".repeat(4000), "latin1");

@@ -10,7 +10,7 @@ const API = "https://music.youtube.com/youtubei/v1/";
 const ORIGIN = "https://music.youtube.com";
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
-const VERSION = "0.6.5";
+const VERSION = "0.6.6";
 // Cada ajuste "password" admite 500 caracteres como máximo (límite de Kino): por eso 4 partes = 2000.
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC", "cookieD"];
 
@@ -18,6 +18,14 @@ const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC", "cookieD"];
 // vista en kino.storage; al volver a cambiar de versión (la clave ya no coincide) vuelven a salir.
 const WHATS_NEW_KEY = "whatsNewSeen";
 const CHANGELOG = [
+  {
+    es: "Una sola barra compacta: la barra del plugin se funde con la de Kino (mergeWithKinoBar + dense) en vez de apilar dos.",
+    en: "One compact bar: the plugin's bar merges with Kino's (mergeWithKinoBar + dense) instead of stacking two."
+  },
+  {
+    es: "El Atrás del sistema y la flecha de la barra vuelven a la vista anterior; en la portada, cierran la pantalla.",
+    en: "System Back and the bar's arrow return to the previous view; on the home tab they close the screen."
+  },
   {
     es: "Barra de navegación inferior con cinco pestañas: Explorar, Buscar, IA, Mi Música y Ajustes.",
     en: "New bottom navigation bar with five tabs: Explore, Search, AI, My Music and Settings."
@@ -2717,15 +2725,28 @@ export async function screen({ state, route, device, size, lang, installed }) {
     onPressed: { ui: [{ open: "ytm_overflow" }] }
   });
 
+  // Una sola barra compacta: la nuestra se fusiona con la de Kino (su Cerrar pasa a ser nuestro leading).
   const appBar = {
     type: "AppBar",
     key: "ytm_appbar",
     title: bar.title,
     titleEn: bar.titleEn,
     backgroundColor: "surface",
+    dense: true,
+    mergeWithKinoBar: true,
     actions: barActions
   };
-  if (tab === "search") {
+  if (tab === "trending") {
+    // La portada se cierra, como el Cerrar de Kino.
+    appBar.leading = {
+      type: "IconButton",
+      key: "ab_close",
+      icon: "close",
+      labelText: "Cerrar",
+      labelTextEn: "Close",
+      onPressed: { close: true }
+    };
+  } else if (tab === "search") {
     appBar.leading = {
       type: "IconButton",
       key: "ab_back",
@@ -2733,6 +2754,15 @@ export async function screen({ state, route, device, size, lang, installed }) {
       labelText: "Volver",
       labelTextEn: "Back",
       onPressed: "close_search"
+    };
+  } else {
+    appBar.leading = {
+      type: "IconButton",
+      key: "ab_back",
+      icon: "arrow_back",
+      labelText: "Volver",
+      labelTextEn: "Back",
+      onPressed: "go_back"
     };
   }
   if (tab === "trending") {
@@ -2752,7 +2782,7 @@ export async function screen({ state, route, device, size, lang, installed }) {
     return n;
   });
 
-  return {
+  const root = {
     type: "Scaffold",
     key: "ytm_main_scaffold",
     appBar,
@@ -2766,6 +2796,9 @@ export async function screen({ state, route, device, size, lang, installed }) {
     floatingActionButton: fab,
     body: bodyNode
   };
+  // Fuera de la portada, el Atrás del sistema vuelve a la vista anterior en vez de cerrar la pantalla.
+  if (tab !== "trending") root.onBack = "go_back";
+  return root;
 }
 
 export async function screenEvent({ name, arg, value, state, route, device, lang, installed }) {
@@ -2837,6 +2870,7 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
   }
 
   if (name === "open_search") {
+    if (s.tab !== "search") s.backTab = isNavTab(s.tab) ? s.tab : "trending";
     s.prevTab = s.tab !== "search" ? s.tab : (s.prevTab || "trending");
     s.tab = "search";
     return { state: s };
@@ -2847,10 +2881,18 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     return { state: s };
   }
 
+  // El regreso de la barra fusionada (y del Atrás del sistema) fuera de la portada.
+  if (name === "go_back") {
+    s.tab = isNavTab(s.backTab) && s.backTab !== s.tab ? s.backTab : "trending";
+    return { state: s };
+  }
+
   if (name === "switch_screen_tab") {
     // La navegación inferior manda el valor de la pestaña; el menú de atajos lo manda como arg.
     const wanted = String(value || arg || "trending");
+    const from = s.tab;
     s.tab = isNavTab(wanted) ? wanted : "trending";
+    if (s.tab !== from) s.backTab = isNavTab(from) ? from : "trending";
     // Al entrar en Biblioteca se recarga ahí mismo, sin depender de otro botón.
     if (s.tab === "library") {
       s.libraryLoaded = false;
@@ -2919,11 +2961,13 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
   }
 
   if (name === "switch_screen_tab_account") {
+    if (s.tab !== "account") s.backTab = isNavTab(s.tab) ? s.tab : "trending";
     s.tab = "account";
     return { state: s };
   }
 
   if (name === "switch_screen_tab_library") {
+    if (s.tab !== "library") s.backTab = isNavTab(s.tab) ? s.tab : "trending";
     s.tab = "library";
     s.libraryLoaded = false;
     if (savedCookie()) {
