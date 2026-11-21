@@ -1,5 +1,5 @@
 /// <reference path="./kino.d.ts" />
-// YouTube Music para Kino · apiVersion 8 (Kino 0.9.54 o superior)
+// YouTube Music para Kino · apiVersion 19 (Kino 0.9.81 o superior) · Creado por JuandreXter
 //
 // - Catálogo (buscar, Inicio, álbumes, listas): API interna de music.youtube.com (cliente WEB_REMIX),
 //   con la sesión de la persona si pegó sus cookies en Ajustes.
@@ -10,14 +10,29 @@ const API = "https://music.youtube.com/youtubei/v1/";
 const ORIGIN = "https://music.youtube.com";
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
-const VERSION = "0.6.7";
+const VERSION = "0.6.8";
 // Cada ajuste "password" admite 500 caracteres como máximo (límite de Kino): por eso 4 partes = 2000.
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC", "cookieD"];
+
+// Primera línea del Registro al cargar el plugin: versión y autor.
+try {
+  kino.log("ytmusic v" + VERSION + " · Creado por JuandreXter");
+} catch (e) {
+  // Sin kino en la carga: el resto del plugin funciona igual.
+}
 
 // Novedades: la pantalla las muestra al abrir tras cada actualización y las oculta «Entendido», que guarda la versión
 // vista en kino.storage; al volver a cambiar de versión (la clave ya no coincide) vuelven a salir.
 const WHATS_NEW_KEY = "whatsNewSeen";
 const CHANGELOG = [
+  {
+    es: "El aviso «Novedades» ya no se pierde: el botón «más» del AppBar y Ajustes tienen «Novedades», que muestra el changelog aunque lo hayas descartado.",
+    en: "The What's new notice is no longer lost: the AppBar's «more» button and Settings both have «What's new», which shows the changelog even after you dismissed it."
+  },
+  {
+    es: "El Registro abre con una línea de versión y «Creado por JuandreXter» cada vez que arranca el plugin.",
+    en: "The Log now opens with a version line and «Creado por JuandreXter» every time the plugin starts."
+  },
   {
     es: "Arreglado el inicio de sesión con Google: la ventana ya no se cerraba a mitad del inicio de sesión y ahora recoge todas las cookies (NID, SIDCC y las *PSIDTS) que YouTube Music exige; sin ellas Google respondía como invitado y decía «no se reconoció la sesión».",
     en: "Google sign-in fixed: the window no longer closes in the middle of signing in and now collects every cookie YouTube Music needs (NID, SIDCC and the *PSIDTS); without them Google answered as a guest and said the session was not recognised."
@@ -1935,6 +1950,7 @@ function overflowMenu() {
     titleEn: "Go to",
     items: [
       { label: "Recargar", labelEn: "Refresh", icon: "refresh", onTap: "refresh_screen" },
+      { label: "Novedades", labelEn: "What's new", icon: "info", onTap: "show_whats_new" },
       { label: "Buscar", labelEn: "Search", icon: "search", onTap: "open_search" },
       { label: "Playlist con IA", labelEn: "AI Playlist", icon: "magic", onTap: "switch_screen_tab", arg: "ai" },
       { label: "Mi Música", labelEn: "My Music", icon: "music", onTap: "switch_screen_tab", arg: "library" },
@@ -1943,8 +1959,10 @@ function overflowMenu() {
   };
 }
 
-// Las novedades de la versión actual, si la persona aún no las descartó: el aviso (arriba) y el detalle en un
-// accordion abierto. Las claves llevan la versión para que una actualización nueva no herede el «oculto» de la vieja.
+// Las novedades de la versión actual: el aviso (arriba) y el detalle en un accordion abierto. Se ocultan solas cuando la
+// persona ya las vio en ESTA versión, pero nunca desaparecen del todo: el menú «más» y Ajustes tienen «Novedades», que
+// las vuelve a mostrar (whatsNewOpen) aunque ya estén descartadas. Las claves llevan la versión para que una actualización
+// nueva no herede el «oculto» de la vieja.
 function whatsNewDismissed() {
   try {
     return kino.storage.get(WHATS_NEW_KEY) === VERSION;
@@ -1957,8 +1975,9 @@ function whatsNewKey(part) {
   return part + "_" + String(VERSION).replace(/[^A-Za-z0-9]+/g, "_");
 }
 
-function whatsNewNodes() {
-  if (whatsNewDismissed()) return [];
+function whatsNewNodes(s) {
+  const forced = !!(s && s.whatsNewOpen === true);
+  if (!forced && whatsNewDismissed()) return [];
   const bannerKey = whatsNewKey("whats_new");
   const listKey = whatsNewKey("whats_new_list");
   return [
@@ -2116,7 +2135,7 @@ export async function screen({ state, route, device, size, lang, installed }) {
       }
     }
 
-    bodyNode = scrollCol("trend_scroll", whatsNewNodes().concat(children, [overflowMenu()]));
+    bodyNode = scrollCol("trend_scroll", whatsNewNodes(s).concat(children, [overflowMenu()]));
     fab = {
       type: "FloatingActionButton",
       key: "fab_search",
@@ -2254,7 +2273,7 @@ export async function screen({ state, route, device, size, lang, installed }) {
       }
     }
 
-    bodyNode = scrollCol("search_scroll", whatsNewNodes().concat(children, [overflowMenu()]));
+    bodyNode = scrollCol("search_scroll", whatsNewNodes(s).concat(children, [overflowMenu()]));
 
   // ---------------------------------------------------------------------------- 3 · Playlist IA
   } else if (tab === "ai") {
@@ -2347,7 +2366,7 @@ export async function screen({ state, route, device, size, lang, installed }) {
       });
     }
 
-    bodyNode = scrollCol("ai_scroll", whatsNewNodes().concat(children, [overflowMenu()]));
+    bodyNode = scrollCol("ai_scroll", whatsNewNodes(s).concat(children, [overflowMenu()]));
     fab = {
       type: "FloatingActionButton",
       key: "fab_ai",
@@ -2567,7 +2586,7 @@ export async function screen({ state, route, device, size, lang, installed }) {
       };
     }
 
-    bodyNode = scrollCol("lib_scroll", whatsNewNodes().concat(children, [overflowMenu()]));
+    bodyNode = scrollCol("lib_scroll", whatsNewNodes(s).concat(children, [overflowMenu()]));
 
   // ------------------------------------------------------------------------------- 5 · Ajustes
   } else {
@@ -2636,7 +2655,8 @@ export async function screen({ state, route, device, size, lang, installed }) {
       variant: "outlined",
       children: [
         { type: "ListTile", key: "quick_qual", dense: true, title: "Formato de audio", titleEn: "Audio format", subtitle: qual === "opus" ? "Opus (más calidad)" : "AAC (más compatible)", subtitleEn: qual === "opus" ? "Opus (higher quality)" : "AAC (most compatible)", trailing: { type: "Icon", name: "tune" }, onTap: "toggle_quality_setting" },
-        { type: "ListTile", key: "quick_8d", dense: true, title: "Audio 8D", titleEn: "8D audio", subtitle: is8d ? "Activado" : "Desactivado", subtitleEn: is8d ? "On" : "Off", trailing: { type: "Icon", name: is8d ? "check" : "close" }, onTap: "toggle_8d_setting" }
+        { type: "ListTile", key: "quick_8d", dense: true, title: "Audio 8D", titleEn: "8D audio", subtitle: is8d ? "Activado" : "Desactivado", subtitleEn: is8d ? "On" : "Off", trailing: { type: "Icon", name: is8d ? "check" : "close" }, onTap: "toggle_8d_setting" },
+        { type: "ListTile", key: "quick_whatsnew", dense: true, title: "Novedades de la " + VERSION, titleEn: "What's new in " + VERSION, subtitle: "Ver qué ha cambiado en esta versión", subtitleEn: "See what changed in this version", trailing: { type: "Icon", name: "info" }, onTap: "show_whats_new" }
       ]
     });
 
@@ -2691,7 +2711,7 @@ export async function screen({ state, route, device, size, lang, installed }) {
       }]
     });
 
-    bodyNode = scrollCol("acc_scroll", whatsNewNodes().concat(children, [overflowMenu()]));
+    bodyNode = scrollCol("acc_scroll", whatsNewNodes(s).concat(children, [overflowMenu()]));
   }
 
   // ---------------------------------------------------------------------- barra superior
@@ -2963,8 +2983,8 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     return { state: s, ui: [{ hide: "search_loading_card" }, { focus: "searchQuery" }] };
   }
 
-  // «Entendido» del aviso de novedades: se guarda la versión vista en kino.storage (no en ajustes) y el aviso no
-  // vuelve a salir hasta que cambie de versión; una actualización nueva usa otras claves y se muestra sola.
+  // «Entendido» del aviso de novedades: se guarda la vista en kino.storage (no en ajustes) y el aviso deja de salir
+  // solo hasta la próxima actualización. El detalle NO se pierde: el menú «más» y Ajustes lo vuelven a mostrar.
   if (name === "whats_new_dismiss") {
     try {
       kino.storage.set(WHATS_NEW_KEY, String(VERSION));
@@ -2972,9 +2992,17 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
       kino.log("ytmusic screenEvent: could not save what's new:", e && e.message);
     }
     return {
-      state: s,
+      state: Object.assign({}, s, { whatsNewOpen: false }),
       ui: [{ hide: whatsNewKey("whats_new") }, { hide: whatsNewKey("whats_new_list") }],
-      toast: "Novedades guardadas: volverán a verse en la próxima actualización"
+      toast: "Novedades guardadas: las ves otra vez desde el menú «más»"
+    };
+  }
+
+  // «Novedades» del menú «más» y de Ajustes: muestra el changelog aunque ya esté descartado.
+  if (name === "show_whats_new") {
+    return {
+      state: Object.assign({}, s, { whatsNewOpen: true }),
+      ui: [{ show: whatsNewKey("whats_new") }, { show: whatsNewKey("whats_new_list") }]
     };
   }
 

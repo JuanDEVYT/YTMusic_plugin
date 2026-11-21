@@ -4,6 +4,11 @@
 
 Plugin de música para Kino (apiVersion 19, Kino 0.9.81 o superior): busca, explora una sección propia, abre álbumes y listas, y reproduce el audio de YouTube Music. Con tu sesión, también ves tus **Me gusta** y **tus listas**.
 
+## Novedades de la 0.6.8
+
+- **El aviso «Novedades» ya no se pierde**: el botón «más» del `AppBar` y la pestaña Ajustes tienen «Novedades», que muestra el changelog de la versión aunque lo hayas descartado antes. «Entendido» solo deja de molestar hasta la próxima actualización.
+- **Línea de versión en el Registro**: al arrancar el plugin escribe `ytmusic v0.6.8 · Creado por JuandreXter`.
+
 ## Novedades de la 0.6.7
 
 - **Arreglado el inicio de sesión con Google**: la ventana de vinculación se cerraba en cuanto aparecía `SAPISID`, a mitad de la cadena de redirección de Google, y solo coleccionaba 9 cookies. YouTube Music contesta como invitado a un juego sin `NID`, `SIDCC` y las `*PSIDTS`, y por eso salía «YouTube no reconoce esta sesión». Ahora la ventana se cierra cuando la cadena termina en YouTube Music (`doneWhen.urlMatches`) y se piden también `NID`, `SIDCC`, `__Secure-1PSIDCC` y `__Secure-3PSIDCC` (18 cookies en total).
