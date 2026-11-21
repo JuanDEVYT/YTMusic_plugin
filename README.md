@@ -4,6 +4,12 @@
 
 Plugin de música para Kino (apiVersion 19, Kino 0.9.81 o superior): busca, explora una sección propia, abre álbumes y listas, y reproduce el audio de YouTube Music. Con tu sesión, también ves tus **Me gusta** y **tus listas**.
 
+## Novedades de la 0.6.10
+
+- **Arreglado el Inicio que no cargaba con sesión iniciada** (se quedaba en los esqueletos «para siempre»): abrir la pantalla ya **no espera a la red** — antes cargaba la cuenta, después las filas y al final la biblioteca, una tras otra, sumando ~36 s, y Kino corta cualquier llamada a los **20 s**, así que la respuesta nunca llegaba y el Inicio nunca se dibujaba. Sin sesión ese trabajo extra se saltaba y por eso funcionaba.
+- Ahora `open` responde enseguida (≈0,3 s) y todo lo pesado corre en un **temporizador de fondo** (`bg_load_tick`) con todas las peticiones en paralelo y límites de 8 a 12 s cada una: se ve **«Cargando tu Inicio...»** con sus esqueletos, y el contenido llega en cuanto está.
+- Si algo falla se reintenta solo (hasta 3 veces) y, si no hay suerte, aparece **«No pudimos cargar la música»** con su botón **Reintentar** — nunca una pantalla cargando para siempre. «Recargar» del menú ya no bloquea: responde al instante con «Actualizando…» y refresca en segundo plano.
+
 ## Novedades de la 0.6.9
 
 - **Biblioteca sin esperas**: al tocar la pestaña **Mi Música** en la barra inferior la pantalla cambia al instante y muestra **«Cargando tu biblioteca...»** con su barra de progreso; la carga corre en segundo plano (temporizador `library_load_tick`) y nunca te deja mirando la sección anterior. Si falla, lo dice en la pantalla (aviso de error, o «No se pudo cargar tu biblioteca») y con un toast; el botón **Sincronizar** y el guardado de cookies nuevos hacen lo mismo.

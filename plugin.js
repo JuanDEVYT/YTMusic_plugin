@@ -10,7 +10,7 @@ const API = "https://music.youtube.com/youtubei/v1/";
 const ORIGIN = "https://music.youtube.com";
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
-const VERSION = "0.6.9";
+const VERSION = "0.6.10";
 // Cada ajuste "password" admite 500 caracteres como máximo (límite de Kino): por eso 4 partes = 2000.
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC", "cookieD"];
 
@@ -25,6 +25,10 @@ try {
 // vista en kino.storage; al volver a cambiar de versión (la clave ya no coincide) vuelven a salir.
 const WHATS_NEW_KEY = "whatsNewSeen";
 const CHANGELOG = [
+  {
+    es: "Arreglado el Inicio que no cargaba con sesión iniciada: la pantalla se quedaba en los esqueletos para siempre porque la carga (cuenta, filas y biblioteca, una tras otra) tardaba 36 s y Kino corta cualquier llamada a los 20 s. Ahora abrir la pantalla responde enseguida y todo lo pesado corre en un temporizador de fondo con peticiones de 8 a 12 s; se ve «Cargando tu Inicio...» y, si algo falla, se reintenta y después aparece «No pudimos cargar la música» con su botón Reintentar.",
+    en: "Fixed Home not loading when signed in: the screen stayed on the skeletons forever because loading (account, rows and library, one after another) took 36 s while Kino cuts any call at 20 s. Opening the screen now answers at once and everything heavy runs on a background timer with 8 to 12 s requests; you see «Loading your Home...» and, if something fails, it retries and then shows «We couldn't load the music» with its Retry button."
+  },
   {
     es: "Biblioteca sin esperas: al tocar la pestaña cambia al instante y muestra «Cargando tu biblioteca...» con su barra de progreso; la carga corre en segundo plano y, si falla, la pantalla lo dice (aviso de error o «No se pudo cargar tu biblioteca») en vez de quedarse en la sección anterior.",
     en: "Library without the wait: tapping the tab switches at once and shows a progress bar with «Loading your library...»; the load runs in the background and, if it fails, the screen says so (error notice or «We couldn't load your library») instead of staying on the previous section."
@@ -715,7 +719,9 @@ async function safe(label, fn, fallback) {
 // Filas de una página de secciones. La primera respuesta de YouTube Music trae pocas repisas; el resto
 // llega por continuación (como mucho 2 peticiones más y sin pasar del plazo).
 async function loadRows(browseId, prefix, max, fallbackTitle, deadline) {
-  let data = await yt("browse", { browseId });
+  // 8 s por petición (igual que la continuación): como mucho 8 + 8 = 16 s por fila, siempre dentro de los 20 s que
+  // Kino da por llamada. Con sesión este mismo recorrido corre dentro de un tic de bg_load_tick.
+  let data = await yt("browse", { browseId }, { timeoutMs: 8000 });
   let rows = rowsFromShelves(data, prefix, max, fallbackTitle);
   for (let i = 0; i < 2 && rows.length < max && Date.now() < deadline; i++) {
     const tok = sectionToken(data);
@@ -808,12 +814,12 @@ async function libraryRows(failHard) {
   };
   const rows = [];
   const [likedData, listsData, ownedListsData, libraryData, historyData] = await Promise.all([
-    soft("library liked", () => yt("browse", { browseId: "VLLM" })),
-    soft("library lists", () => yt("browse", { browseId: "FEmusic_liked_playlists" })),
+    soft("library liked", () => yt("browse", { browseId: "VLLM" }, { timeoutMs: 12000 })),
+    soft("library lists", () => yt("browse", { browseId: "FEmusic_liked_playlists" }, { timeoutMs: 12000 })),
     // Estos dos browseId no son compatibles con el cliente WEB_REMIX y devuelven unavailable.
     Promise.resolve(null),
     Promise.resolve(null),
-    soft("library history", () => yt("browse", { browseId: "FEmusic_history" })),
+    soft("library history", () => yt("browse", { browseId: "FEmusic_history" }, { timeoutMs: 12000 })),
   ]);
   if (likedData) {
     const items = collectItems(shelfOf(likedData)).filter((x) => x.type === "track" && keep(x)).slice(0, 60).map(toItem);
@@ -896,7 +902,7 @@ export async function section(arg) {
   } else if (tab === TAB_EXPLORE) {
     const [explore, releases] = await Promise.all([
       loadRows("FEmusic_explore", "explorar", 12, "", deadline),
-      safe("explore releases", () => yt("browse", { browseId: "FEmusic_new_releases_albums" }), null),
+      safe("explore releases", () => yt("browse", { browseId: "FEmusic_new_releases_albums" }, { timeoutMs: 12000 }), null),
     ]);
     rows = releases ? rowsFromShelves(releases, "nuevos", 1, "Nuevos álbumes") : [];
     rows = rows.concat(explore);
@@ -913,7 +919,7 @@ export async function section(arg) {
 
 // -- Categorías: los "estados de ánimo y géneros" de YouTube Music -------------------------------
 export async function categories() {
-  const data = await safe("categories", () => yt("browse", { browseId: "FEmusic_moods_and_genres" }), null);
+  const data = await safe("categories", () => yt("browse", { browseId: "FEmusic_moods_and_genres" }, { timeoutMs: 12000 }), null);
   if (!data) return [];
   const out = [];
   const seen = new Set();
@@ -1669,7 +1675,7 @@ async function resolveTrack(p, options, canBrowse, reserve) {
 async function accountName(cookie) {
   let data;
   try {
-    data = await yt("account/account_menu", {}, { cookie });
+    data = await yt("account/account_menu", {}, { cookie, timeoutMs: 12000 });
   } catch (e) {
     if (e.code === "auth_required") return null;
     throw e;
@@ -2065,6 +2071,20 @@ export async function screen({ state, route, device, size, lang, installed }) {
     }
 
     if (sectionLoading || !s.trendingLoaded) {
+      // El primer dibujo llega ya de open (que ya no espera a la red): esto se ve mientras bg_load_tick trae las filas.
+      children.push({
+        type: "Column",
+        key: "trend_loading_col",
+        gap: 12,
+        crossAxisAlignment: "center",
+        padding: { top: 24, bottom: 8 },
+        children: [{
+          type: "CircularProgressIndicator",
+          key: "trend_loading_cpi",
+          text: sectionLoading ? "Cargando esta sección..." : "Cargando tu Inicio...",
+          textEn: sectionLoading ? "Loading this section..." : "Loading your Home..."
+        }]
+      });
       children.push({ type: "Skeleton", key: "skel_hero", shape: "card" });
       children.push({ type: "Skeleton", key: "skel_lines_a", shape: "line", lines: 4 });
       children.push({ type: "Skeleton", key: "skel_lines_b", shape: "line", lines: 6 });
@@ -2883,10 +2903,112 @@ export async function screen({ state, route, device, size, lang, installed }) {
   };
   // Fuera de la portada, el Atrás del sistema vuelve a la vista anterior en vez de cerrar la pantalla.
   if (tab !== "trending") root.onBack = "go_back";
-  // Mientras la biblioteca carga, la raíz trae un temporizador: library_load_tick la trae en segundo plano y la
-  // pestaña cambia al instante. Al terminar la pantalla se dibuja sin `every` y el temporizador deja de correr.
-  if (s.libraryLoading) root.every = { ms: 1000, event: "library_load_tick" };
+  // Mientras haya carga pendiente (Inicio o biblioteca), la raíz trae un temporizador: bg_load_tick la trae en segundo
+  // plano y la pantalla se dibuja ya. Al terminar se dibuja sin `every` y el temporizador deja de correr.
+  if (s.bootLoading || s.libraryLoading) root.every = { ms: 1000, event: "bg_load_tick" };
   return root;
+}
+
+// =============================================================================================
+// CARGA EN SEGUNDO PLANO (el temporizador bg_load_tick que la raíz trae mientras hay algo pendiente)
+// =============================================================================================
+// Kino da 20 s por llamada y apaga un temporizador cuyos tres tics fallen seguidos. Por eso cada tic hace UNA vuelta
+// completa, con todas las peticiones en paralelo (12 s cada una) y sin lanzar nunca: si algo falla lo anota y el
+// siguiente tic reintenta; al tercer intento rinde y deja el estado vacío, que ya muestra «No pudimos cargar» con su
+// botón Reintentar. Ninguna de estas funciones toca la red fuera de su propio tic.
+
+// Inicio + Tendencias + géneros + cuenta + biblioteca, todo a la vez. Devuelve un toast o null.
+async function bootTick(s) {
+  s.bootTries = (s.bootTries || 0) + 1;
+  // Los géneros solo se piden la primera vez: después viven en el estado.
+  const genresPromise = (Array.isArray(s.genres) && s.genres.length)
+    ? Promise.resolve(s.genres)
+    : categories().catch(() => []);
+  const libPromise = savedCookie()
+    ? libraryRows(true).then((rows) => ({ ok: true, rows })).catch((e) => ({ ok: false, error: e }))
+    : Promise.resolve({ ok: true, rows: [] });
+
+  const [session, homeRows, sectionData, genres, lib] = await Promise.all([
+    checkSession(s).catch((e) => { kino.log("ytmusic bg: account check failed:", e && e.message); }),
+    home().catch((e) => { kino.log("ytmusic bg: home failed:", e && e.message); return null; }),
+    section({ tab: "tendencias" }).catch((e) => { kino.log("ytmusic bg: charts failed:", e && e.message); return null; }),
+    genresPromise,
+    libPromise
+  ]);
+
+  // La biblioteca de la pestaña se guarda aunque falle lo demás: tiene su propio aviso.
+  if (lib && lib.ok) {
+    const lItems = [];
+    for (const r of lib.rows || []) {
+      for (const it of r.items || []) {
+        if (it.ref && !lItems.some((x) => x.ref === it.ref)) lItems.push(it);
+      }
+    }
+    s.libraryItems = lItems;
+    s.libraryError = "";
+    s.libraryLoaded = true;
+    s.libraryLoading = false;
+    kino.log("ytmusic bg: library synced items:", lItems.length);
+  } else if (lib) {
+    s.libraryError = "No se pudieron cargar las listas. Revisa la sesión y vuelve a sincronizar.";
+    s.libraryLoaded = true;
+    s.libraryLoading = false;
+    kino.log("ytmusic bg: library load failed:", lib.error && lib.error.message);
+  }
+
+  const homeRowsOk = Array.isArray(homeRows) && homeRows.length > 0;
+  const chartsOk = !!(sectionData && Array.isArray(sectionData.rows) && sectionData.rows.length);
+  if (!homeRowsOk && !chartsOk) {
+    // Ni Inicio ni Tendencias trajeron nada: dos reintentos y se rinde (si no, la pantalla se quedaría cargando).
+    if (s.bootTries < 3) {
+      kino.log("ytmusic bg: empty home, try", s.bootTries);
+      return null;
+    }
+    kino.log("ytmusic bg: giving up after", s.bootTries, "tries");
+    s.trendingLoaded = true;
+    s.railsAuth = sessionActive(s);
+    s.bootLoading = false;
+    return "No se pudo cargar Inicio";
+  }
+
+  const inicio = railsFromRows(homeRows || []);
+  const tendencias = railsFromRows((sectionData && sectionData.rows) || []);
+  const rails = mergeRails([inicio, tendencias]);
+  s.sections = { inicio, tendencias };
+  s.trendSection = isTrendSection(s.trendSection) ? s.trendSection : (inicio.length ? "inicio" : "tendencias");
+  s.sectionLoading = null;
+  s.genres = Array.isArray(genres) ? genres.filter((g) => g && g.ref && g.title) : (s.genres || []);
+  s.rails = rails;
+  s.heroItem = (rails[0] && rails[0].items && rails[0].items[0]) || null;
+  s.trendingLoaded = true;
+  // Whether this Inicio was asked with the account: after linking or logging out the screen offers to load it again.
+  s.railsAuth = sessionActive(s);
+  s.bootLoading = false;
+  s.bootTries = 0;
+  kino.log("ytmusic bg: rails loaded count:", rails.length, "genres:", s.genres.length, "account:", session ? "checked" : "-");
+  return null;
+}
+
+// La biblioteca de la pestaña, sola (cuando la pidió un toque en vez del arranque). Devuelve un toast o null.
+async function libraryTick(s) {
+  if (!s.libraryLoading) return null;
+  s.libraryLoading = false;
+  s.libraryLoaded = true;
+  if (!savedCookie()) {
+    s.libraryError = "";
+    return null;
+  }
+  try {
+    const rows = await libraryRows(true);
+    s.libraryItems = rows.flatMap((r) => r.items || []);
+    s.libraryError = "";
+    kino.log("ytmusic bg: library synced items:", s.libraryItems.length);
+    return s.libraryItems.length ? "Biblioteca sincronizada" : "Biblioteca vacía";
+  } catch (e) {
+    kino.log("ytmusic bg: library load failed:", e && e.message);
+    s.libraryError = "No se pudieron cargar las listas. Revisa la sesión y vuelve a sincronizar.";
+    return "No se pudo cargar tu biblioteca";
+  }
 }
 
 export async function screenEvent({ name, arg, value, state, route, device, lang, installed }) {
@@ -2899,64 +3021,16 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     // On a reload the saved cookies are the truth again (the screen-only flags of link_account / logout_session end here).
     s.sessionOff = false;
     s.linkedNow = false;
-    await checkSession(s);
-    kino.log("ytmusic screenEvent: loading sections, charts, home rows and genres");
-    try {
-      // Los géneros solo se piden la primera vez: después viven en el estado.
-      const genresPromise = (Array.isArray(s.genres) && s.genres.length)
-        ? Promise.resolve(s.genres)
-        : categories().catch(() => []);
-      const [homeRows, sectionData, genres] = await Promise.all([
-        home().catch(() => []),
-        section({ tab: "tendencias" }).catch(() => ({ rows: [] })),
-        genresPromise
-      ]);
-
-      const inicio = railsFromRows(homeRows);
-      const tendencias = railsFromRows(sectionData.rows || []);
-      const rails = mergeRails([inicio, tendencias]);
-
-      s.sections = { inicio, tendencias };
-      s.trendSection = isTrendSection(s.trendSection) ? s.trendSection : (inicio.length ? "inicio" : "tendencias");
-      s.sectionLoading = null;
-      s.genres = Array.isArray(genres) ? genres.filter((g) => g && g.ref && g.title) : [];
-      s.rails = rails;
-      s.heroItem = rails[0]?.items?.[0] || null;
-      s.trendingLoaded = true;
-      // Whether this Inicio was asked with the account: after linking or logging out the screen offers to load it again.
-      s.railsAuth = sessionActive(s);
-      kino.log("ytmusic screenEvent: rails loaded count:", rails.length, "genres:", s.genres.length);
-    } catch (e) {
-      kino.log("ytmusic screenEvent: error loading trending:", e && e.message);
-      s.trendingLoaded = true;
-      s.railsAuth = sessionActive(s);
-    }
-
-    if (savedCookie()) {
-      try {
-        const libRows = await libraryRows(true);
-        const lItems = [];
-        for (const r of libRows) {
-          for (const it of r.items) {
-            if (it.ref && !lItems.some((x) => x.ref === it.ref)) {
-              lItems.push(it);
-            }
-          }
-        }
-        s.libraryItems = lItems;
-        s.libraryError = "";
-        s.libraryLoaded = true;
-      } catch (e) {
-        kino.log("ytmusic screenEvent: error loading library:", e && e.message);
-        s.libraryError = "No se pudieron cargar las listas. Revisa la sesión y vuelve a sincronizar.";
-        s.libraryLoaded = true;
-      }
-    } else {
-      s.libraryLoaded = true;
-    }
-    // La recarga completa ya esperó la carga antes de dibujar: ningún temporizador debe quedar pendiente.
-    s.libraryLoading = false;
-    return { state: s };
+    // NADA de red aquí. Kino corta cualquier llamada a los 20 s y esta ruta (comprobar la sesión → cargar las filas →
+    // cargar la biblioteca, una tras otra) llegaba a 36 s con sesión: la respuesta nunca llegaba, la pantalla se quedaba
+    // en los esqueletos de Inicio y parecía congelada para siempre. Sin sesión se saltaba la biblioteca y por eso
+    // funcionaba. Ahora open responde ya y bg_load_tick (temporizador de la raíz) hace la carga en paralelo, con
+    // peticiones de 12 s cada una, bien dentro del presupuesto de 20 s.
+    s.bootLoading = true;
+    s.bootTries = 0;
+    s.libraryLoading = !!savedCookie();
+    if (!s.libraryLoading) s.libraryLoaded = true;
+    return { state: s, toast: name === "refresh_screen" ? "Actualizando…" : undefined };
   }
 
   if (name === "open_search") {
@@ -2983,7 +3057,7 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     const from = s.tab;
     s.tab = isNavTab(wanted) ? wanted : "trending";
     if (s.tab !== from) s.backTab = isNavTab(from) ? from : "trending";
-    // Al entrar en Biblioteca la pestaña cambia AL INSTANTE y la carga corre en segundo plano (library_load_tick):
+    // Al entrar en Biblioteca la pestaña cambia AL INSTANTE y la carga corre en segundo plano (bg_load_tick):
     // así el usuario ve «Cargando...» en Biblioteca en vez de quedarse mirando la sección anterior.
     if (s.tab === "library") {
       s.libraryLoading = !!savedCookie();
@@ -2996,27 +3070,33 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     return { state: s };
   }
 
-  // El temporizador de la biblioteca (solo existe mientras libraryLoading está puesto, porque la raíz deja de traer
-  // `every` al dibujarse sin él). Hace la carga lenta sin bloquear el cambio de pestaña: si falla, lo dice en la
-  // pantalla (el emptyState / el banner de error) y también en un toast.
-  if (name === "library_load_tick") {
-    if (!s.libraryLoading) return { state: s };
-    s.libraryLoading = false;
-    s.libraryLoaded = true;
-    if (!savedCookie()) {
-      s.libraryError = "";
-      return { state: s };
-    }
+  // El temporizador de la raíz (solo existe mientras bootLoading o libraryLoading está puesto, porque la raíz deja de
+  // traer `every` al dibujarse sin ellos). Prioridad a lo que se ve en Explorar; la biblioteca, si quedó pendiente, va
+  // en el siguiente tic. Nunca lanza: un tic que falla tres veces seguidas lo apaga Kino.
+  if (name === "bg_load_tick") {
     try {
-      const rows = await libraryRows(true);
-      s.libraryItems = rows.flatMap((r) => r.items || []);
-      s.libraryError = "";
-      kino.log("ytmusic screenEvent: library synced items:", s.libraryItems.length);
-      return { state: s, toast: s.libraryItems.length ? "Biblioteca sincronizada" : "Biblioteca vacía" };
+      if (s.bootLoading) {
+        const toast = await bootTick(s);
+        return { state: s, toast };
+      }
+      if (s.libraryLoading) {
+        const toast = await libraryTick(s);
+        return { state: s, toast };
+      }
+      return { state: s };
     } catch (e) {
-      kino.log("ytmusic screenEvent: library load failed:", e && e.message);
-      s.libraryError = "No se pudieron cargar las listas. Revisa la sesión y vuelve a sincronizar.";
-      return { state: s, toast: "No se pudo cargar tu biblioteca" };
+      kino.log("ytmusic bg_load_tick failed:", e && e.message);
+      s.bootTries = (s.bootTries || 0) + 1;
+      if (!s.bootLoading || s.bootTries >= 3) {
+        // Se rinde: el estado vacío muestra «No pudimos cargar» con su botón Reintentar, nunca esqueletos eternos.
+        s.bootLoading = false;
+        s.libraryLoading = false;
+        s.libraryLoaded = true;
+        s.trendingLoaded = true;
+        s.railsAuth = sessionActive(s);
+        return { state: s, toast: "No se pudo cargar Inicio" };
+      }
+      return { state: s };
     }
   }
 
@@ -3084,7 +3164,7 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
   if (name === "switch_screen_tab_library") {
     if (s.tab !== "library") s.backTab = isNavTab(s.tab) ? s.tab : "trending";
     s.tab = "library";
-    // Igual que al tocar la pestaña: cambia ya y la carga corre en library_load_tick.
+    // Igual que al tocar la pestaña: cambia ya y la carga corre en bg_load_tick.
     s.libraryLoading = !!savedCookie();
     if (!s.libraryLoading) {
       s.libraryLoaded = true;
@@ -3289,7 +3369,7 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
       s.libraryLoaded = true;
       s.libraryLoading = false;
     } else if (keys.some((k) => k === "cookieA" || k === "cookieB" || k === "cookieC" || k === "cookieD")) {
-      // Las cookies cambiaron: la biblioteca se recarga en segundo plano (library_load_tick) mientras la pestaña
+      // Las cookies cambiaron: la biblioteca se recarga en segundo plano (bg_load_tick) mientras la pestaña
       // Biblioteca muestra «Cargando...», en vez de congelar este evento a mitad de la carga.
       s.libraryLoading = !!savedCookie();
       s.libraryLoaded = !s.libraryLoading;
