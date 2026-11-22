@@ -10,7 +10,7 @@ const API = "https://music.youtube.com/youtubei/v1/";
 const ORIGIN = "https://music.youtube.com";
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 const WEB_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0";
-const VERSION = "0.6.10";
+const VERSION = "0.6.11";
 // Cada ajuste "password" admite 500 caracteres como máximo (límite de Kino): por eso 4 partes = 2000.
 const COOKIE_KEYS = ["cookieA", "cookieB", "cookieC", "cookieD"];
 
@@ -26,8 +26,12 @@ try {
 const WHATS_NEW_KEY = "whatsNewSeen";
 const CHANGELOG = [
   {
-    es: "Arreglado el Inicio que no cargaba con sesión iniciada: la pantalla se quedaba en los esqueletos para siempre porque la carga (cuenta, filas y biblioteca, una tras otra) tardaba 36 s y Kino corta cualquier llamada a los 20 s. Ahora abrir la pantalla responde enseguida y todo lo pesado corre en un temporizador de fondo con peticiones de 8 a 12 s; se ve «Cargando tu Inicio...» y, si algo falla, se reintenta y después aparece «No pudimos cargar la música» con su botón Reintentar.",
-    en: "Fixed Home not loading when signed in: the screen stayed on the skeletons forever because loading (account, rows and library, one after another) took 36 s while Kino cuts any call at 20 s. Opening the screen now answers at once and everything heavy runs on a background timer with 8 to 12 s requests; you see «Loading your Home...» and, if something fails, it retries and then shows «We couldn't load the music» with its Retry button."
+    es: "Arreglado de verdad el Inicio y la Biblioteca con sesión iniciada: con cuenta vinculada el estado pasaba de los 65536 bytes que Kino acepta (los mismos carruseles se guardaban dos veces y la biblioteca entera), Kino lo rechazaba y la pantalla nunca se volvía a dibujar. Ahora cada elemento se guarda una sola vez y sin datos de más, y si aun así algo se pasa del límite la pantalla lo recorta sola antes de devolverlo: por eso ya no hay esqueletos para nunca.",
+    en: "Home and Library really fixed when signed in: with an account linked the state went over the 65536 bytes Kino accepts (the same rails were stored twice plus the whole library), Kino rejected it and the screen never drew again. Every item is now stored once and without extra data, and if anything still crosses the limit the screen trims it before answering: no more skeletons forever."
+  },
+  {
+    es: "Carga que se recupera sola: el temporizador de fondo ya no depende de banderas que se pierden al recargar el plugin, sino de lo que falta por cargar, así que cualquier dibujo con datos pendientes vuelve a arrancar la carga; «Actualizar» carga en el momento y la comprobación de sesión ya no supera su tiempo de respuesta (ese error reiniciaba el plugin).",
+    en: "Self-healing load: the background timer no longer depends on flags that get lost when the plugin reloads, but on what is still missing, so any draw with pending data starts the load again; «Refresh» loads at once and the session check no longer exceeds its response time (that error used to reload the plugin)."
   },
   {
     es: "Biblioteca sin esperas: al tocar la pestaña cambia al instante y muestra «Cargando tu biblioteca...» con su barra de progreso; la carga corre en segundo plano y, si falla, la pantalla lo dice (aviso de error o «No se pudo cargar tu biblioteca») en vez de quedarse en la sección anterior.",
@@ -848,17 +852,20 @@ async function libraryRows(failHard) {
 }
 
 // Tu biblioteca y las filas de YouTube Music se piden a la vez. Si solo falla la segunda, queda la biblioteca.
-export async function home() {
+// `home({ library: false })` es solo Inicio: la biblioteca se pide aparte (libraryRows) para no
+// guardarla dos veces en el estado ni pedirla dos veces en cada arranque.
+export async function home(opts) {
+  const withLibrary = !opts || opts.library !== false;
   const deadline = Date.now() + 14000;
   let mainErr = null;
   const [lib, main] = await Promise.all([
-    savedCookie() ? libraryRows() : Promise.resolve([]),
+    withLibrary && savedCookie() ? libraryRows() : Promise.resolve([]),
     loadRows("FEmusic_home", "yt", 20, "", deadline).catch((e) => {
       mainErr = e;
       return [];
     }),
   ]);
-  const rows = lib.concat(main.slice(0, 20 - lib.length));
+  const rows = (withLibrary ? lib : []).concat(main.slice(0, 20 - (withLibrary ? lib.length : 0)));
   if (!rows.length && mainErr) throw mainErr;
   return rows;
 }
@@ -1672,10 +1679,12 @@ async function resolveTrack(p, options, canBrowse, reserve) {
 // Formulario de ajustes: estado de la sesión, cerrar sesión y validar al guardar
 // ---------------------------------------------------------------------------------------------
 
-async function accountName(cookie) {
+// `timeoutMs`: settingsStatus solo tiene 10 s de presupuesto (contract.timeoutsMs.settingsStatus),
+// así que ahí se pide 8; el resto (comprobar la sesión en un tic, validar al guardar) tiene 20.
+async function accountName(cookie, timeoutMs) {
   let data;
   try {
-    data = await yt("account/account_menu", {}, { cookie, timeoutMs: 12000 });
+    data = await yt("account/account_menu", {}, { cookie, timeoutMs: timeoutMs || 12000 });
   } catch (e) {
     if (e.code === "auth_required") return null;
     throw e;
@@ -1688,7 +1697,9 @@ export async function settingsStatus() {
   const cookie = savedCookie();
   if (!cookie) return { linked: "Sin sesión: usas YouTube Music como invitado" };
   try {
-    const name = await accountName(cookie);
+    // 8 s: si se piden 12, Kino corta a los 10 y cuenta la llamada como fallo (en cadena, tres
+    // reinician el plugin y la pantalla perdía su carga a mitad).
+    const name = await accountName(cookie, 8000);
     return { linked: name ? "Sesión iniciada como " + name : "Google no reconoce esta sesión: copia las cookies otra vez" };
   } catch (e) {
     return { linked: "No se pudo comprobar la sesión ahora" };
@@ -1847,7 +1858,9 @@ const TREND_SECTIONS = [
 const isNavTab = (t) => NAV_ITEMS.some((n) => n.key === t);
 const isTrendSection = (t) => TREND_SECTIONS.some((n) => n.value === t);
 
-// Las filas que devuelve una capacidad, como carruseles: título y hasta 25 elementos, sin repetir títulos.
+// Las filas que devuelve una capacidad, como carruseles: título y hasta 15 elementos, sin repetir
+// títulos. Es lo que se guarda en el estado, así que los elementos van sin `id` (screen() lo
+// devuelve al dibujar) y el tope mantiene el estado por debajo del límite de Kino.
 function railsFromRows(rows) {
   const out = [];
   const seen = new Set();
@@ -1856,23 +1869,211 @@ function railsFromRows(rows) {
     const title = r.title || "Música destacada";
     if (seen.has(title)) continue;
     seen.add(title);
-    out.push({ title, items: r.items.slice(0, 25) });
+    out.push({ title, items: slimItems(r.items, 15) });
   }
   return out;
 }
 
-// Une varios carruseles quitando los títulos que ya aparecieron.
-function mergeRails(lists) {
+// ---------------------------------------------------------------------------------------------
+// ESTADO LIGERO · Kino rechaza un estado de más de 65536 bytes (contract.maxStateBytes) y se
+// conserva el anterior: la pantalla nunca se vuelve a dibujar y por eso ni Inicio ni Biblioteca
+// cargaban con sesión. Tres reglas, aquí, para que eso no pueda volver a pasar:
+//   1) cada elemento se guarda UNA sola vez (los carruseles no se duplican en `rails`);
+//   2) se guarda sin `id` (ref ya lo contiene) y screen() se lo devuelve al dibujar;
+//   3) fitState mide antes de responder y recorta si hace falta, siempre por debajo del límite.
+// ---------------------------------------------------------------------------------------------
+
+const STATE_BUDGET = 60000; // ~5 KB de holgura bajo los 65536 de Kino
+const ITEM_ID_RE = /^[A-Za-z0-9._~-]{1,128}$/;
+
+// El id que Kino exige en cada elemento, derivado del ref (que es donde ya está).
+function itemIdOf(it) {
+  const meta = parseItemType(it.ref, it.badges);
+  let id = meta.type + "." + meta.idPart;
+  if (!ITEM_ID_RE.test(id)) id = id.replace(/[^A-Za-z0-9._~-]/g, "").slice(0, 128);
+  if (!ITEM_ID_RE.test(id)) id = "x." + kino.crypto.hash("md5", String(it.ref || "")).slice(0, 24);
+  return id;
+}
+
+// Lo que se guarda: el mismo elemento sin `id` (unos 42 bytes menos por elemento).
+function slimItem(it) {
+  if (!it || typeof it !== "object" || !it.id) return it;
+  const out = {};
+  for (const k of Object.keys(it)) if (k !== "id") out[k] = it[k];
+  return out;
+}
+
+function slimItems(list, max) {
+  if (!Array.isArray(list)) return [];
+  const src = max && list.length > max ? list.slice(0, max) : list;
+  return src.map(slimItem);
+}
+
+// La biblioteca, con su tope por fila: la interfaz muestra 25 listas, 30 álbumes y 40 canciones.
+const LIB_ROW_CAPS = { "yt-liked": 40, "yt-lists": 45, "yt-history": 20 };
+function slimLibRows(rows) {
   const out = [];
-  const seen = new Set();
-  for (const list of lists) {
-    for (const r of list || []) {
-      if (!r || seen.has(r.title)) continue;
-      seen.add(r.title);
-      out.push(r);
-    }
+  for (const r of rows || []) {
+    if (!r || !Array.isArray(r.items) || !r.items.length) continue;
+    out.push(Object.assign({}, r, { items: slimItems(r.items, LIB_ROW_CAPS[r.id] || 30) }));
   }
   return out;
+}
+
+// De vuelta, al dibujar: screen() es el único que pinta, así que basta con pasarlo por aquí.
+function hydrateItems(list) {
+  if (!Array.isArray(list) || !list.length) return list;
+  let changed = false;
+  const out = list.map((it) => {
+    if (!it || typeof it !== "object" || it.id || !it.ref) return it;
+    changed = true;
+    return Object.assign({}, it, { id: itemIdOf(it) });
+  });
+  return changed ? out : list;
+}
+
+function hydrateRows(rows) {
+  if (!Array.isArray(rows) || !rows.length) return rows;
+  let changed = false;
+  const out = rows.map((r) => {
+    if (!r || !Array.isArray(r.items)) return r;
+    const items = hydrateItems(r.items);
+    if (items === r.items) return r;
+    changed = true;
+    return Object.assign({}, r, { items });
+  });
+  return changed ? out : rows;
+}
+
+function hydrateState(state) {
+  const s = Object.assign({}, state || {});
+  if (s.sections && typeof s.sections === "object") {
+    const sec = {};
+    let changed = false;
+    for (const k of Object.keys(s.sections)) {
+      const rows = hydrateRows(s.sections[k]);
+      if (rows !== s.sections[k]) changed = true;
+      sec[k] = rows;
+    }
+    if (changed) s.sections = sec;
+  }
+  if (Array.isArray(s.libRows)) s.libRows = hydrateRows(s.libRows);
+  if (Array.isArray(s.rails)) s.rails = hydrateRows(s.rails); // estados guardados en 0.6.10 o antes
+  if (Array.isArray(s.libraryItems)) s.libraryItems = hydrateItems(s.libraryItems);
+  if (Array.isArray(s.searchResults)) s.searchResults = hydrateItems(s.searchResults);
+  if (Array.isArray(s.aiTracks)) s.aiTracks = hydrateItems(s.aiTracks);
+  if (Array.isArray(s.genres)) s.genres = hydrateItems(s.genres);
+  return s;
+}
+
+// Bytes del estado como los cuenta Kino (UTF-8): un carácter no ASCII pesa 2 de más, por eso se
+// sobrecuenta y el recorte siempre queda del lado seguro.
+function stateBytes(s) {
+  const t = JSON.stringify(s) || "";
+  let extra = 0;
+  for (let i = 0; i < t.length; i++) if (t.charCodeAt(i) > 127) extra += 2;
+  return t.length + extra;
+}
+
+// El tope, antes de responder. Recorta por orden de lo menos importante y nunca toca la sección
+// activa: si algo se pasa, Kino lo rechazaría y la pantalla se quedaría congelada para siempre.
+function fitState(s) {
+  if (!s || typeof s !== "object") return s;
+  // 0.6.10 guardaba los mismos carruseles en `rails` y en `sections`, y el primer elemento en
+  // `heroItem`: fuera, siempre (con `null` Kino borra la clave del estado).
+  if (s.rails !== undefined) s.rails = null;
+  if (s.heroItem !== undefined) s.heroItem = null;
+  const heavy = !!(s.sections || s.libRows || s.libraryItems || s.searchResults);
+  if (!heavy || stateBytes(s) <= STATE_BUDGET) return s;
+  const active = isTrendSection(s.trendSection) ? s.trendSection : "inicio";
+  const trim = (fn) => {
+    fn();
+    return stateBytes(s) <= STATE_BUDGET;
+  };
+  const rowsOf = (rows, n) => (Array.isArray(rows) ? rows.map((r) => (r && Array.isArray(r.items) && r.items.length > n ? Object.assign({}, r, { items: r.items.slice(0, n) }) : r)) : rows);
+  if (Array.isArray(s.searchResults) && s.searchResults.length > 10 && trim(() => { s.searchResults = s.searchResults.slice(0, 10); })) return s;
+  if (Array.isArray(s.searchResults) && s.searchResults.length && trim(() => { s.searchResults = []; s.searched = false; })) return s;
+  if (s.libRows && trim(() => { s.libRows = rowsOf(s.libRows, 30); })) return s;
+  if (Array.isArray(s.libraryItems) && s.libraryItems.length > 60 && trim(() => { s.libraryItems = s.libraryItems.slice(0, 60); })) return s;
+  if (s.sections && trim(() => { const o = {}; for (const k of Object.keys(s.sections)) o[k] = rowsOf(s.sections[k], 10); s.sections = o; })) return s;
+  if (s.sections && Object.keys(s.sections).length > 1 && Array.isArray(s.sections[active]) && s.sections[active].length && trim(() => { const o = {}; o[active] = s.sections[active]; s.sections = o; })) return s;
+  if (Array.isArray(s.genres) && s.genres.length > 16 && trim(() => { s.genres = s.genres.slice(0, 16); })) return s;
+  if (s.libRows && s.sections && trim(() => { s.libRows = rowsOf(s.libRows, 15); const o = {}; for (const k of Object.keys(s.sections)) o[k] = rowsOf(s.sections[k], 8); s.sections = o; })) return s;
+  // Último recurso: una sección con sus carruseles y la biblioteca, lo mínimo con lo que se usa. Con
+  // esto el estado baja de 40 KB pase lo que pase, y Kino siempre acepta la respuesta.
+  if (s.sections) {
+    const keys = Object.keys(s.sections);
+    const keep = Array.isArray(s.sections[active]) && s.sections[active].length
+      ? active
+      : (keys.find((k) => Array.isArray(s.sections[k]) && s.sections[k].length) || active);
+    const o = {};
+    o[keep] = rowsOf(s.sections[keep] || [], 8).slice(0, 8);
+    s.sections = o;
+    if (keep !== active) s.trendSection = keep;
+  }
+  if (s.libRows) s.libRows = rowsOf(s.libRows, 10).slice(0, 3);
+  if (Array.isArray(s.libraryItems)) s.libraryItems = s.libraryItems.slice(0, 30);
+  if (Array.isArray(s.genres)) s.genres = s.genres.slice(0, 12);
+  if (Array.isArray(s.searchResults)) s.searchResults = [];
+  const after = stateBytes(s);
+  if (after > STATE_BUDGET) kino.log("ytmusic: estado recortado sigue en", after, "bytes (límite", STATE_BUDGET + ")");
+  return s;
+}
+
+// -- Lo que muestra cada sitio, derivado del estado (sin duplicar nada) --------------------------
+function libRowsOf(s) {
+  return s && Array.isArray(s.libRows) ? s.libRows : [];
+}
+
+// La biblioteca completa: sus filas y, en los estados guardados hasta 0.6.10, la lista plana.
+function libItemsOf(s) {
+  const rows = libRowsOf(s);
+  if (rows.length) {
+    const out = [];
+    for (const r of rows) {
+      for (const it of r.items || []) {
+        if (it && it.ref && !out.some((x) => x.ref === it.ref)) out.push(it);
+      }
+    }
+    return out;
+  }
+  return s && Array.isArray(s.libraryItems) ? s.libraryItems : [];
+}
+
+const libCount = (s) => libItemsOf(s).length;
+
+// Los carruseles de la sección activa de Explorar; en «Para ti» van los de biblioteca delante
+// (que es como los ordena home()).
+function trendRails(s) {
+  const sectionId = isTrendSection(s.trendSection) ? s.trendSection : "inicio";
+  const own = s && s.sections && Array.isArray(s.sections[sectionId]) ? s.sections[sectionId] : [];
+  if (sectionId !== "inicio") return own;
+  const lib = libRowsOf(s);
+  if (!lib.length) return own;
+  const titles = new Set();
+  for (const r of lib) if (r && r.title) titles.add(r.title);
+  return lib.concat(own.filter((r) => r && !titles.has(r.title)));
+}
+
+const homeHasContent = (s) => trendRails(s).length > 0;
+
+// ¿Queda algo por cargar? Se decide con los datos, no con banderas: así el temporizador vuelve a
+// arrancar aunque el plugin se recargue y el estado se quede como estaba.
+const bootPending = (s) => !!s.bootLoading || !s.trendingLoaded;
+const libPending = (s) => !!savedCookie() && (!s.libraryLoaded || !!s.libraryLoading);
+
+// Entrar en la pestaña Biblioteca: cambia al instante y solo se (re)sincroniza si no había nada o si
+// la última vez falló, para no gastar red (ni un aviso de «sincronizada») en cada visita.
+// `force` es para el botón «Sincronizar» / «Reintentar» (switch_screen_tab_library), que sí pide
+// la biblioteca otra vez aunque la última sincronización haya salido bien.
+function enterLibrary(s, force) {
+  if (!savedCookie()) {
+    s.libraryLoading = false;
+    s.libraryLoaded = true;
+    s.libraryError = "";
+    return;
+  }
+  s.libraryLoading = force || !s.libraryLoaded || !!s.libraryError;
 }
 
 // El cuerpo de cada pestaña: un scroll vertical con una columna dentro (Kino le da la altura).
@@ -2035,7 +2236,9 @@ function whatsNewNodes(s) {
 
 export async function screen({ state, route, device, size, lang, installed }) {
   lastInstalled = installed || {};
-  const s = state || {};
+  // El estado llega sin `id` en los elementos (se ahorra ~42 bytes por uno); aquí se lo devolvemos,
+  // una sola vez, para que todo lo que se pinta por debajo tenga el id que Kino exige.
+  const s = hydrateState(state);
   const tab = isNavTab(s.tab) ? s.tab : "trending";
   const hasSess = sessionActive(s);
   const sessionBad = hasSess && s.accountChecked && !s.accountName;
@@ -2047,8 +2250,7 @@ export async function screen({ state, route, device, size, lang, installed }) {
   if (tab === "trending") {
     const sectionId = isTrendSection(s.trendSection) ? s.trendSection : "inicio";
     const sectionLoading = s.sectionLoading === sectionId;
-    const own = s.sections && Array.isArray(s.sections[sectionId]) ? s.sections[sectionId] : null;
-    const rails = own && own.length ? own : (s.rails || []);
+    const rails = trendRails(s);
     const filter = s.trendFilter || "all";
     const children = [];
 
@@ -2290,7 +2492,7 @@ export async function screen({ state, route, device, size, lang, installed }) {
       });
     } else {
       children.push(sectionHead("sr_sug_head", "Para empezar", "To get started"));
-      const recRails = (s.rails || []).slice(0, 2);
+      const recRails = trendRails(s).slice(0, 2);
       if (recRails.length) {
         recRails.forEach((r, idx) => {
           if (r.items && r.items.length) {
@@ -2415,7 +2617,7 @@ export async function screen({ state, route, device, size, lang, installed }) {
 
   // --------------------------------------------------------------------------- 4 · Mi Música
   } else if (tab === "library") {
-    const rawLib = s.libraryItems || [];
+    const rawLib = libItemsOf(s);
     const filter = s.libFilter || "all";
     const children = [];
 
@@ -2474,8 +2676,9 @@ export async function screen({ state, route, device, size, lang, installed }) {
       }
 
       // Cargando: la pestaña ya cambió (switch_screen_tab no espera) y el temporizador trae las listas en segundo
-      // plano. La barra y el texto dicen «Cargando...» para que nadie crea que la pantalla se congeló.
-      if (s.libraryLoading) {
+      // plano. La barra y el texto dicen «Cargando...» para que nadie crea que la pantalla se congeló. Si ya hay
+      // cosas guardadas se siguen mostrando (una recarga nunca esconde lo que había).
+      if (s.libraryLoading && !rawLib.length) {
         children.push({
           type: "Column",
           key: "lib_loading_col",
@@ -2489,7 +2692,7 @@ export async function screen({ state, route, device, size, lang, installed }) {
             textEn: "Loading your library..."
           }]
         });
-      } else if (!s.libraryLoaded) {
+      } else if (!s.libraryLoaded && !rawLib.length) {
         children.push({ type: "Skeleton", key: "skel_lib", shape: "card" });
         children.push({ type: "Skeleton", key: "skel_lib_lines", shape: "line", lines: 6 });
       } else if (rawLib.length) {
@@ -2883,7 +3086,7 @@ export async function screen({ state, route, device, size, lang, installed }) {
   // ----------------------------------------------------------- navegación inferior (5 pestañas)
   const navItems = NAV_ITEMS.map((n) => {
     if (n.key === "account" && sessionBad) return { ...n, badge: { text: "!", color: "warning" } };
-    if (n.key === "library" && hasSess && (s.libraryItems || []).length) return { ...n, badge: "dot" };
+    if (n.key === "library" && hasSess && libCount(s)) return { ...n, badge: "dot" };
     return n;
   });
 
@@ -2905,7 +3108,9 @@ export async function screen({ state, route, device, size, lang, installed }) {
   if (tab !== "trending") root.onBack = "go_back";
   // Mientras haya carga pendiente (Inicio o biblioteca), la raíz trae un temporizador: bg_load_tick la trae en segundo
   // plano y la pantalla se dibuja ya. Al terminar se dibuja sin `every` y el temporizador deja de correr.
-  if (s.bootLoading || s.libraryLoading) root.every = { ms: 1000, event: "bg_load_tick" };
+  // La decisión es de los datos, no de banderas: si el plugin se recarga a mitad de carga (el Registro lo hace al
+  // fallar una llamada), el siguiente dibujo vuelve a arrancar el temporizador y la carga sigue sola.
+  if (bootPending(s) || libPending(s)) root.every = { ms: 1000, event: "bg_load_tick" };
   return root;
 }
 
@@ -2916,6 +3121,25 @@ export async function screen({ state, route, device, size, lang, installed }) {
 // completa, con todas las peticiones en paralelo (12 s cada una) y sin lanzar nunca: si algo falla lo anota y el
 // siguiente tic reintenta; al tercer intento rinde y deja el estado vacío, que ya muestra «No pudimos cargar» con su
 // botón Reintentar. Ninguna de estas funciones toca la red fuera de su propio tic.
+
+// La biblioteca de la pestaña: se guarda en filas (cada elemento una sola vez, sin `id`) y se guarda
+// aunque falle lo demás, porque tiene su propio aviso en la interfaz.
+function storeLibrary(s, lib) {
+  if (!lib) return;
+  if (lib.ok) {
+    s.libRows = slimLibRows(lib.rows);
+    s.libraryItems = null; // los estados hasta 0.6.10 la guardaban como lista plana: fuera
+    s.libraryError = "";
+    s.libraryLoaded = true;
+    s.libraryLoading = false;
+    kino.log("ytmusic bg: library synced items:", libCount(s));
+  } else {
+    s.libraryError = "No se pudieron cargar las listas. Revisa la sesión y vuelve a sincronizar.";
+    s.libraryLoaded = true;
+    s.libraryLoading = false;
+    kino.log("ytmusic bg: library load failed:", lib.error && lib.error.message);
+  }
+}
 
 // Inicio + Tendencias + géneros + cuenta + biblioteca, todo a la vez. Devuelve un toast o null.
 async function bootTick(s) {
@@ -2930,31 +3154,14 @@ async function bootTick(s) {
 
   const [session, homeRows, sectionData, genres, lib] = await Promise.all([
     checkSession(s).catch((e) => { kino.log("ytmusic bg: account check failed:", e && e.message); }),
-    home().catch((e) => { kino.log("ytmusic bg: home failed:", e && e.message); return null; }),
+    // Solo Inicio: la biblioteca la trae libPromise, para no guardarla dos veces en el estado.
+    home({ library: false }).catch((e) => { kino.log("ytmusic bg: home failed:", e && e.message); return null; }),
     section({ tab: "tendencias" }).catch((e) => { kino.log("ytmusic bg: charts failed:", e && e.message); return null; }),
     genresPromise,
     libPromise
   ]);
 
-  // La biblioteca de la pestaña se guarda aunque falle lo demás: tiene su propio aviso.
-  if (lib && lib.ok) {
-    const lItems = [];
-    for (const r of lib.rows || []) {
-      for (const it of r.items || []) {
-        if (it.ref && !lItems.some((x) => x.ref === it.ref)) lItems.push(it);
-      }
-    }
-    s.libraryItems = lItems;
-    s.libraryError = "";
-    s.libraryLoaded = true;
-    s.libraryLoading = false;
-    kino.log("ytmusic bg: library synced items:", lItems.length);
-  } else if (lib) {
-    s.libraryError = "No se pudieron cargar las listas. Revisa la sesión y vuelve a sincronizar.";
-    s.libraryLoaded = true;
-    s.libraryLoading = false;
-    kino.log("ytmusic bg: library load failed:", lib.error && lib.error.message);
-  }
+  storeLibrary(s, lib);
 
   const homeRowsOk = Array.isArray(homeRows) && homeRows.length > 0;
   const chartsOk = !!(sectionData && Array.isArray(sectionData.rows) && sectionData.rows.length);
@@ -2973,51 +3180,57 @@ async function bootTick(s) {
 
   const inicio = railsFromRows(homeRows || []);
   const tendencias = railsFromRows((sectionData && sectionData.rows) || []);
-  const rails = mergeRails([inicio, tendencias]);
   s.sections = { inicio, tendencias };
   s.trendSection = isTrendSection(s.trendSection) ? s.trendSection : (inicio.length ? "inicio" : "tendencias");
   s.sectionLoading = null;
   s.genres = Array.isArray(genres) ? genres.filter((g) => g && g.ref && g.title) : (s.genres || []);
-  s.rails = rails;
-  s.heroItem = (rails[0] && rails[0].items && rails[0].items[0]) || null;
+  // Ni `rails` ni `heroItem`: eran exactamente los mismos carruseles otra vez (con sesión eso pasaba
+  // el estado de 64 KB y Kino lo rechazaba). fitState borra las claves que hubiera dejado 0.6.10.
   s.trendingLoaded = true;
   // Whether this Inicio was asked with the account: after linking or logging out the screen offers to load it again.
   s.railsAuth = sessionActive(s);
   s.bootLoading = false;
   s.bootTries = 0;
-  kino.log("ytmusic bg: rails loaded count:", rails.length, "genres:", s.genres.length, "account:", session ? "checked" : "-");
+  kino.log("ytmusic bg: rails loaded count:", inicio.length + tendencias.length, "genres:", s.genres.length, "account:", session ? "checked" : "-");
   return null;
 }
 
 // La biblioteca de la pestaña, sola (cuando la pidió un toque en vez del arranque). Devuelve un toast o null.
 async function libraryTick(s) {
-  if (!s.libraryLoading) return null;
-  s.libraryLoading = false;
-  s.libraryLoaded = true;
   if (!savedCookie()) {
+    s.libRows = [];
+    s.libraryItems = null;
     s.libraryError = "";
+    s.libraryLoaded = true;
+    s.libraryLoading = false;
     return null;
   }
   try {
     const rows = await libraryRows(true);
-    s.libraryItems = rows.flatMap((r) => r.items || []);
+    s.libRows = slimLibRows(rows);
+    s.libraryItems = null;
     s.libraryError = "";
-    kino.log("ytmusic bg: library synced items:", s.libraryItems.length);
-    return s.libraryItems.length ? "Biblioteca sincronizada" : "Biblioteca vacía";
+    s.libraryLoaded = true;
+    s.libraryLoading = false;
+    const n = libCount(s);
+    kino.log("ytmusic bg: library synced items:", n);
+    return n ? "Biblioteca sincronizada" : "Biblioteca vacía";
   } catch (e) {
     kino.log("ytmusic bg: library load failed:", e && e.message);
     s.libraryError = "No se pudieron cargar las listas. Revisa la sesión y vuelve a sincronizar.";
+    s.libraryLoaded = true;
+    s.libraryLoading = false;
     return "No se pudo cargar tu biblioteca";
   }
 }
 
-export async function screenEvent({ name, arg, value, state, route, device, lang, installed }) {
+async function screenEventImpl({ name, arg, value, state, route, device, lang, installed }) {
   lastInstalled = installed || {};
   kino.log("ytmusic screenEvent called:", { name, arg, value, stateInputs: state && state.inputs });
   const s = Object.assign({}, state || {});
 
   // "account_linked": Kino saved the cookies (storeAs.thenEvent) and tells the screen; it reloads like a refresh, now with the account.
-  if (name === "open" || name === "refresh_screen" || name === "account_linked") {
+  if (name === "open" || name === "account_linked") {
     // On a reload the saved cookies are the truth again (the screen-only flags of link_account / logout_session end here).
     s.sessionOff = false;
     s.linkedNow = false;
@@ -3025,12 +3238,39 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     // cargar la biblioteca, una tras otra) llegaba a 36 s con sesión: la respuesta nunca llegaba, la pantalla se quedaba
     // en los esqueletos de Inicio y parecía congelada para siempre. Sin sesión se saltaba la biblioteca y por eso
     // funcionaba. Ahora open responde ya y bg_load_tick (temporizador de la raíz) hace la carga en paralelo, con
-    // peticiones de 12 s cada una, bien dentro del presupuesto de 20 s.
+    // peticiones de 12 s cada una, bien dentro del presupuesto de 20 s. El temporizador lo decide `every` con lo que
+    // falta por cargar, así que aunque el plugin se recargue a mitad de carga la pantalla arranca sola de nuevo.
     s.bootLoading = true;
     s.bootTries = 0;
     s.libraryLoading = !!savedCookie();
     if (!s.libraryLoading) s.libraryLoaded = true;
-    return { state: s, toast: name === "refresh_screen" ? "Actualizando…" : undefined };
+    return { state: s };
+  }
+
+  // "refresh_screen": lo pide la persona (el aviso de cuenta vinculada, el botón Reintentar, el Ajuste «Actualizar»).
+  // Carga aquí mismo y con la pantalla vieja a la vista: no depende del temporizador y el tope sigue siendo 20 s.
+  if (name === "refresh_screen") {
+    s.sessionOff = false;
+    s.linkedNow = false;
+    s.bootTries = 0;
+    s.bootLoading = true;
+    if (!savedCookie()) {
+      s.libraryLoaded = true;
+      s.libraryLoading = false;
+    }
+    try {
+      const toast = await bootTick(s);
+      if (toast) return { state: s, toast };
+      if (s.bootTries) {
+        return { state: s, toast: homeHasContent(s) ? "No se pudo actualizar Inicio" : "No se pudo cargar Inicio" };
+      }
+      return { state: s, toast: "Actualizado" };
+    } catch (e) {
+      kino.log("ytmusic refresh failed:", e && e.message);
+      s.bootLoading = false;
+      s.bootTries = (s.bootTries || 0) + 1;
+      return { state: s, toast: homeHasContent(s) ? "No se pudo actualizar Inicio" : "No se pudo cargar Inicio" };
+    }
   }
 
   if (name === "open_search") {
@@ -3060,43 +3300,46 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     // Al entrar en Biblioteca la pestaña cambia AL INSTANTE y la carga corre en segundo plano (bg_load_tick):
     // así el usuario ve «Cargando...» en Biblioteca en vez de quedarse mirando la sección anterior.
     if (s.tab === "library") {
-      s.libraryLoading = !!savedCookie();
-      if (!s.libraryLoading) {
-        s.libraryLoaded = true;
-        s.libraryError = "";
-      }
+      enterLibrary(s);
       return { state: s };
     }
     return { state: s };
   }
 
-  // El temporizador de la raíz (solo existe mientras bootLoading o libraryLoading está puesto, porque la raíz deja de
-  // traer `every` al dibujarse sin ellos). Prioridad a lo que se ve en Explorar; la biblioteca, si quedó pendiente, va
-  // en el siguiente tic. Nunca lanza: un tic que falla tres veces seguidas lo apaga Kino.
+  // El temporizador de la raíz: existe mientras algo falte por cargar (lo decide `every` con los datos, no con
+  // banderas). Prioridad a lo que se ve en Explorar; la biblioteca, si quedó pendiente, va en el siguiente tic.
+  // Nunca lanza: un tic que falla tres veces seguidas lo apaga Kino.
   if (name === "bg_load_tick") {
     try {
-      if (s.bootLoading) {
+      if (bootPending(s)) {
         const toast = await bootTick(s);
         return { state: s, toast };
       }
-      if (s.libraryLoading) {
+      if (libPending(s)) {
         const toast = await libraryTick(s);
         return { state: s, toast };
       }
       return { state: s };
     } catch (e) {
       kino.log("ytmusic bg_load_tick failed:", e && e.message);
-      s.bootTries = (s.bootTries || 0) + 1;
-      if (!s.bootLoading || s.bootTries >= 3) {
-        // Se rinde: el estado vacío muestra «No pudimos cargar» con su botón Reintentar, nunca esqueletos eternos.
-        s.bootLoading = false;
-        s.libraryLoading = false;
-        s.libraryLoaded = true;
-        s.trendingLoaded = true;
-        s.railsAuth = sessionActive(s);
-        return { state: s, toast: "No se pudo cargar Inicio" };
+      if (bootPending(s)) {
+        // bootTick ya sumó el intento: al tercero se rinde y el estado vacío muestra «No pudimos cargar» con su
+        // botón Reintentar, nunca esqueletos eternos.
+        if ((s.bootTries || 0) >= 3) {
+          s.bootLoading = false;
+          s.libraryLoading = false;
+          s.libraryLoaded = true;
+          s.trendingLoaded = true;
+          s.railsAuth = sessionActive(s);
+          return { state: s, toast: "No se pudo cargar Inicio" };
+        }
+        return { state: s };
       }
-      return { state: s };
+      // Falló la biblioteca: se anota (su pestaña lo muestra) y se deja de intentar.
+      s.libraryError = "No se pudieron cargar las listas. Revisa la sesión y vuelve a sincronizar.";
+      s.libraryLoaded = true;
+      s.libraryLoading = false;
+      return { state: s, toast: "No se pudo cargar tu biblioteca" };
     }
   }
 
@@ -3164,12 +3407,9 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
   if (name === "switch_screen_tab_library") {
     if (s.tab !== "library") s.backTab = isNavTab(s.tab) ? s.tab : "trending";
     s.tab = "library";
-    // Igual que al tocar la pestaña: cambia ya y la carga corre en bg_load_tick.
-    s.libraryLoading = !!savedCookie();
-    if (!s.libraryLoading) {
-      s.libraryLoaded = true;
-      s.libraryError = "";
-    }
+    // Es el botón «Sincronizar» / «Reintentar» (y el atajo): cambia ya y pide la biblioteca otra
+    // vez en bg_load_tick, aunque la sincronización anterior haya salido bien.
+    enterLibrary(s, true);
     return { state: s };
   }
 
@@ -3193,7 +3433,7 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     if (q) {
       if (!s.inputs) s.inputs = {};
       s.inputs.searchQuery = q;
-      return screenEvent({ name: "do_search", value: q, state: s, route, device, lang });
+      return screenEventImpl({ name: "do_search", value: q, state: s, route, device, lang });
     }
     return { state: s };
   }
@@ -3203,7 +3443,7 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     if (prompt) {
       if (!s.inputs) s.inputs = {};
       s.inputs.aiPrompt = prompt;
-      return screenEvent({ name: "generate_ai", value: prompt, state: s, route, device, lang });
+      return screenEventImpl({ name: "generate_ai", value: prompt, state: s, route, device, lang });
     }
     return { state: s };
   }
@@ -3258,7 +3498,9 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     try {
       const rawResults = await search({ q });
       const items = Array.isArray(rawResults) ? rawResults : (rawResults && Array.isArray(rawResults.items) ? rawResults.items : []);
-      s.searchResults = items.slice(0, 50);
+      // 30 como máximo: la interfaz muestra 20 canciones y 20 de artistas/álbumes, y cada resultado
+      // de más pesa en el estado (que Kino rechaza si pasa de 64 KB).
+      s.searchResults = slimItems(items, 30);
     } catch (e) {
       kino.log("ytmusic screenEvent: search exception:", e && e.message ? e.message : e);
       s.searchResults = [];
@@ -3352,7 +3594,7 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
 
   if (name === "logout_session") {
     return {
-      state: Object.assign({}, s, { libraryItems: [], linkedNow: false, sessionOff: true }),
+      state: Object.assign({}, s, { libRows: [], libraryItems: null, linkedNow: false, sessionOff: true }),
       clearSettings: COOKIE_KEYS.slice(),
       toast: "Sesión cerrada"
     };
@@ -3364,7 +3606,8 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
     const acted = (value && value.action) || "";
     const ok = !value || value.ok !== false;
     if (keys.includes("logout") || acted === "logout") {
-      s.libraryItems = [];
+      s.libRows = [];
+      s.libraryItems = null;
       s.libraryError = "";
       s.libraryLoaded = true;
       s.libraryLoading = false;
@@ -3373,12 +3616,24 @@ export async function screenEvent({ name, arg, value, state, route, device, lang
       // Biblioteca muestra «Cargando...», en vez de congelar este evento a mitad de la carga.
       s.libraryLoading = !!savedCookie();
       s.libraryLoaded = !s.libraryLoading;
-      if (!s.libraryLoading) s.libraryItems = [];
+      if (!s.libraryLoading) {
+        s.libRows = [];
+        s.libraryItems = null;
+      }
     }
     return { state: s, toast: ok ? "Ajustes guardados" : "Revisa los ajustes: no se pudieron guardar" };
   }
 
   return { state: s };
+}
+
+// Toda respuesta con estado pasa por aquí: mide y recorta antes de devolverlo. Kino rechaza un
+// estado de más de 65536 bytes y se queda con el anterior, con lo que la pantalla dejaría de
+// dibujarse para siempre (era lo que pasaba con sesión iniciada en 0.6.10).
+export async function screenEvent(args) {
+  const out = await screenEventImpl(args);
+  if (out && out.state) out.state = fitState(out.state);
+  return out;
 }
 
 // =============================================================================================

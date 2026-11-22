@@ -4,6 +4,12 @@
 
 Plugin de música para Kino (apiVersion 19, Kino 0.9.81 o superior): busca, explora una sección propia, abre álbumes y listas, y reproduce el audio de YouTube Music. Con tu sesión, también ves tus **Me gusta** y **tus listas**.
 
+## Novedades de la 0.6.11
+
+- **Arreglado de verdad el Inicio y la Biblioteca con sesión iniciada**: con cuenta vinculada el estado que la pantalla devuelve pasaba de los **65536 bytes** que Kino acepta (los mismos carruseles se guardaban dos veces y encima la biblioteca entera, unos 95 KB), Kino lo **rechazaba** y la pantalla nunca se volvía a dibujar: por eso ni Inicio ni Biblioteca cargaban. Ahora cada elemento se guarda **una sola vez** y **sin datos de más** (sin `id`, que se devuelve al dibujar) y, si aun así algo se pasa del límite, `fitState` lo recorta antes de responder: en pruebas, los ~95 KB del estado real bajan a ~17 KB.
+- **Carga que se recupera sola**: el temporizador de fondo ya no depende de banderas (que se pierden cuando el plugin se recarga a mitad de una llamada), sino de **lo que falta por cargar**, así que cualquier dibujo con datos pendientes vuelve a arrancar la carga. `settingsStatus` además pide 8 s en vez de 12 (Kino corta a los 10 y ese error reiniciaba el plugin).
+- **«Actualizar» carga en el momento**: el botón (menú, aviso de cuenta, Reintentar) hace la carga ahí mismo con el contenido viejo a la vista y avisa «Actualizado» o «No se pudo cargar Inicio»; al entrar en Biblioteca solo se resincroniza si no había nada o si la última vez falló, así que visitarla ya no gasta red ni enseña «sincronizada» cada vez.
+
 ## Novedades de la 0.6.10
 
 - **Arreglado el Inicio que no cargaba con sesión iniciada** (se quedaba en los esqueletos «para siempre»): abrir la pantalla ya **no espera a la red** — antes cargaba la cuenta, después las filas y al final la biblioteca, una tras otra, sumando ~36 s, y Kino corta cualquier llamada a los **20 s**, así que la respuesta nunca llegaba y el Inicio nunca se dibujaba. Sin sesión ese trabajo extra se saltaba y por eso funcionaba.
