@@ -147,7 +147,7 @@ test("kino.tmdb: the key from KINO_TMDB_KEY goes as api_key (v3) or a Bearer hea
   const kino = createKino(MANIFEST, { env: { KINO_TMDB_KEY: V3 }, fetchImpl: v3.impl }).kino;
   assert.deepEqual(await kino.tmdb("/movie/603", { language: "es-MX" }), { id: 603 });
   assert.equal(v3.calls[0].url, `${contract.kinoTmdb.base}/movie/603?language=es-MX&api_key=${V3}`);
-  const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJ4In0.c2lnbmF0dXJl";
+  const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJ4In0.c2lnbmF0dXJl"; // secretscan:allow — vector de prueba, no credencial
   const v4 = fakeFetch(200, { id: 1 });
   await createKino(MANIFEST, { env: NO_ENV, tmdbKey: jwt, fetchImpl: v4.impl }).kino.tmdb("/genre/movie/list");
   assert.equal(v4.calls[0].url, `${contract.kinoTmdb.base}/genre/movie/list`);

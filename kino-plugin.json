@@ -1,14 +1,18 @@
 {
   "id": "ytmusic",
   "name": "YouTube Music",
-  "version": "0.6.11",
+  "version": "0.6.12",
   "apiVersion": 19,
   "entry": "plugin.js",
   "description": "YouTube Music con interfaz de exploración por carruseles, búsqueda limpia, Playlist IA y biblioteca personal.",
   "author": "JuanDEVYT",
   "creator": "JuandreXter",
   "homepage": "https://github.com/JuanDEVYT/YTMusic_plugin",
-  "recommends": ["kinotvapp/kino-plugin-lyrics-ytmusic", "kinotvapp/kino-plugin-lyrics-lrclib", "JuanDEVYT/BetterLyrics_plugin"],
+  "recommends": [
+    "kinotvapp/kino-plugin-lyrics-ytmusic",
+    "kinotvapp/kino-plugin-lyrics-lrclib",
+    "JuanDEVYT/BetterLyrics_plugin"
+  ],
   "hosts": [
     "music.youtube.com",
     "www.youtube.com",
@@ -172,5 +176,9 @@
     "20": {
       "visualBrowser": true
     }
+  },
+  "signature": {
+    "authorKey": "0036d8031405ef39f52a4c120617f46a8db166fa23867367f7ae68360f7e31cd",
+    "value": "c4d099cdaa6bb492b0246b7f84140289e0e9354c3b6e9879d4b27d42d4ef59c561b94b71ce6392b058a098f5fbb39c3bb4a5a4a8060915f7887581864a948d04"
   }
 }

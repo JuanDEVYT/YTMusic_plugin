@@ -3795,7 +3795,6 @@ export async function panel(context) {
     return {
       format: "screen",
       title: "YouTube Music",
-      accent: "#FF0050",
       tabs: [
         { id: "lyrics", label: "Letras", labelEn: "Lyrics" },
         { id: "upnext", label: "A continuación", labelEn: "Up next" },
